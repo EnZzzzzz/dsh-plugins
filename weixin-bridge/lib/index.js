@@ -17,18 +17,30 @@
  *
  * @module dsh-weixin-bridge
  */
+import { homedir } from 'node:os';
+import path from 'node:path';
 import { isLoggedIn, start } from 'weixin-agent-sdk';
 import { createWeixinAgent } from './bridge.js';
 import { WeixinLoginManager } from './weixin-login.js';
 export const name = 'weixin-bridge';
 /** The harness services this plugin requires before it activates. */
 export const inject = ['agents'];
+/**
+ * The default session working directory: the invoking directory, unless it is
+ * the filesystem root — GUI-launched desktop apps start with cwd `/` (or a
+ * drive root on Windows), where no harness session should ever work — in
+ * which case the user's home directory is used instead.
+ */
+function defaultCwd() {
+    const cwd = process.cwd();
+    return cwd === path.parse(cwd).root ? homedir() : cwd;
+}
 /** Default provider/model mirror the shipped headless profile uses. */
 export const ConfigDefaults = {
     enabled: true,
     provider: 'deepseek-official',
     model: 'deepseek-v4-flash',
-    cwd: process.cwd(),
+    cwd: defaultCwd(),
 };
 /**
  * Mount the WeChat bridge.
