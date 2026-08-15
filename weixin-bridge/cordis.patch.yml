@@ -1,0 +1,10 @@
+# dsh-weixin-bridge bundle layer: one insert that mounts the bridge plugin.
+# Applied after every profile bundle layer; users override rows by id in their
+# profile cordis.patch.yml. Set enabled: false to install without connecting.
+- insert:
+    - id: weixin-bridge
+      name: dsh-weixin-bridge
+      config:
+        enabled: true
+        provider: deepseek-official
+        model: deepseek-v4-flash

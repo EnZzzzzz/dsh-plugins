@@ -1,0 +1,11 @@
+# dependencies
+node_modules/
+
+# build caches / local artifacts
+*.tsbuildinfo
+
+# macOS
+.DS_Store
+
+# logs
+*.log

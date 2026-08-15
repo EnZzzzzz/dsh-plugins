@@ -1,0 +1,34 @@
+# GCP vpn-node (35.212.220.175, us-west1) — Clash Verge / mihomo 配置
+proxies:
+  - name: GCP-hy2
+    type: hysteria2
+    server: 35.212.220.175
+    port: 443
+    password: mpJla03Uku2WeT4apBOzixQN
+    sni: www.bing.com
+    skip-cert-verify: true
+
+  - name: GCP-tuic
+    type: tuic
+    server: 35.212.220.175
+    port: 8443
+    uuid: 26e41aee-275e-47d8-9f4f-464382e53d5d
+    password: TUvGGssIEJ0AQPRRNccTliuh
+    congestion-controller: bbr
+    sni: www.bing.com
+    skip-cert-verify: true
+
+proxy-groups:
+  - name: 节点选择
+    type: select
+    proxies:
+      - GCP-hy2
+      - GCP-tuic
+      - DIRECT
+
+rules:
+  - GEOSITE,private,DIRECT
+  - GEOSITE,cn,DIRECT
+  - GEOIP,private,DIRECT,no-resolve
+  - GEOIP,CN,DIRECT
+  - MATCH,节点选择
