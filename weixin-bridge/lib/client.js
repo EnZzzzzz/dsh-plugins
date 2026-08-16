@@ -2713,6 +2713,27 @@ window.__ModuleLoader__.load({
 					setBusy(false);
 				}
 			}, [connection]);
+			/** Open the Host's native OS folder chooser and fill the cwd field. */
+			const pickCwd = (0, react.useCallback)(async () => {
+				setBusy(true);
+				try {
+					const response = await connection.api.host.pickDirectory({});
+					if (response.result.ok) {
+						const picked = response.result.value.path;
+						if (picked !== null) {
+							setConfigInput((prev) => prev === void 0 ? prev : {
+								...prev,
+								cwd: picked
+							});
+							setConfigError(void 0);
+						}
+					} else setConfigError(`选择目录失败：${response.result.error.message}`);
+				} catch (error) {
+					setConfigError(error instanceof Error ? error.message : String(error));
+				} finally {
+					setBusy(false);
+				}
+			}, [connection]);
 			const saveConfig = (0, react.useCallback)(async () => {
 				if (configInput === void 0) return;
 				setBusy(true);
@@ -2916,14 +2937,46 @@ window.__ModuleLoader__.load({
 									model
 								})
 							}),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(ConfigField, {
-								label: "cwd",
-								hint: "新会话的工作目录",
-								value: configInput.cwd,
-								onChange: (cwd) => setConfigInput((prev) => prev === void 0 ? prev : {
-									...prev,
-									cwd
-								})
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								style: {
+									display: "flex",
+									gap: "12px",
+									alignItems: "center",
+									padding: "6px 0"
+								},
+								children: [
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+										style: {
+											width: "120px",
+											flexShrink: 0,
+											color: "var(--dsw-text-secondary, #888)"
+										},
+										children: "cwd"
+									}),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+										type: "text",
+										readOnly: true,
+										value: configInput.cwd,
+										style: {
+											flex: 1,
+											minWidth: 0,
+											padding: "6px 10px",
+											borderRadius: "6px",
+											border: "1px solid var(--dsw-border, #d0d0d0)",
+											background: "var(--dsw-surface, #fff)",
+											color: "var(--dsw-text, #222)",
+											font: "inherit",
+											opacity: .85
+										}
+									}),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)(ActionButton, {
+										onClick: () => {
+											pickCwd();
+										},
+										disabled: busy,
+										children: "选择目录…"
+									})
+								]
 							}),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(ConfigField, {
 								label: "maxTokens",

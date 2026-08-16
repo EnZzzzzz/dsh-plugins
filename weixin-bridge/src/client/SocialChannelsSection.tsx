@@ -224,6 +224,27 @@ export function SocialChannelsSection(props: SocialChannelsSectionProps): ReactN
     }
   }, [connection])
 
+  /** Open the Host's native OS folder chooser and fill the cwd field. */
+  const pickCwd = useCallback(async (): Promise<void> => {
+    setBusy(true)
+    try {
+      const response = await connection.api.host.pickDirectory({})
+      if (response.result.ok) {
+        const picked = response.result.value.path
+        if (picked !== null) {
+          setConfigInput(prev => prev === undefined ? prev : { ...prev, cwd: picked })
+          setConfigError(undefined)
+        }
+      } else {
+        setConfigError(`选择目录失败：${response.result.error.message}`)
+      }
+    } catch (error) {
+      setConfigError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusy(false)
+    }
+  }, [connection])
+
   const saveConfig = useCallback(async (): Promise<void> => {
     if (configInput === undefined) return
     setBusy(true)
@@ -362,12 +383,28 @@ export function SocialChannelsSection(props: SocialChannelsSectionProps): ReactN
               value={configInput.model}
               onChange={(model) => setConfigInput(prev => prev === undefined ? prev : { ...prev, model })}
             />
-            <ConfigField
-              label="cwd"
-              hint="新会话的工作目录"
-              value={configInput.cwd}
-              onChange={(cwd) => setConfigInput(prev => prev === undefined ? prev : { ...prev, cwd })}
-            />
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'center', padding: '6px 0' }}>
+              <div style={{ width: '120px', flexShrink: 0, color: 'var(--dsw-text-secondary, #888)' }}>cwd</div>
+              <input
+                type="text"
+                readOnly
+                value={configInput.cwd}
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  padding: '6px 10px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--dsw-border, #d0d0d0)',
+                  background: 'var(--dsw-surface, #fff)',
+                  color: 'var(--dsw-text, #222)',
+                  font: 'inherit',
+                  opacity: 0.85,
+                }}
+              />
+              <ActionButton onClick={() => { void pickCwd() }} disabled={busy}>
+                选择目录…
+              </ActionButton>
+            </div>
             <ConfigField
               label="maxTokens"
               hint="留空使用默认"
