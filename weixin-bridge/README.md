@@ -55,10 +55,10 @@ dsh --profile weixin
 | `enabled` | `true` | 设为 `false` 只安装不连接 |
 | `provider` | `deepseek-official` | 模型路由 |
 | `model` | `deepseek-v4-flash` | 模型名 |
-| `cwd` | `process.cwd()` | 新建会话的工作目录 |
+| `cwd` | 启动目录（桌面 App 为 `/` 时用 `~/dsf`） | 新建会话的工作目录 |
 | `maxTokens` | — | 每次请求最大输出 token |
 
-所有字段均可选；未配置时用默认值（`enabled: true`、`provider: deepseek-official`、`model: deepseek-v4-flash`、`cwd: process.cwd()`）。
+所有字段均可选；未配置时用默认值（`enabled: true`、`provider: deepseek-official`、`model: deepseek-v4-flash`、`cwd` 取启动目录，桌面 App 启动目录为根目录时回落到 `~/dsf`）。配置也可以在设置页的「配置」区块直接编辑（持久化到 `$DSH_HOME/settings.yaml`，对新会话立即生效；`~/` 前缀会自动展开）。
 
 ## 设置里的"社交渠道"页
 

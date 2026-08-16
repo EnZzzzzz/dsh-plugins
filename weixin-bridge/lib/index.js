@@ -23,6 +23,7 @@
  * @module dsh-weixin-bridge
  */
 import z from '@deepseek-ai/schemastery';
+import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { isLoggedIn, start } from 'weixin-agent-sdk';
@@ -35,11 +36,15 @@ export const inject = ['agents'];
  * The default session working directory: the invoking directory, unless it is
  * the filesystem root — GUI-launched desktop apps start with cwd `/` (or a
  * drive root on Windows), where no harness session should ever work — in
- * which case the user's home directory is used instead.
+ * which case `~/dsf` is used instead.
  */
 function defaultCwd() {
     const cwd = process.cwd();
-    return cwd === path.parse(cwd).root ? homedir() : cwd;
+    return cwd === path.parse(cwd).root ? path.join(homedir(), 'dsf') : cwd;
+}
+/** Expand a leading `~/` in a user-supplied path (what the shell would do). */
+function expandHome(input) {
+    return input === '~' || input.startsWith('~/') ? path.join(homedir(), input.slice(1)) : input;
 }
 /** Default provider/model mirror the shipped headless profile uses. */
 export const ConfigDefaults = {
@@ -76,6 +81,14 @@ export function apply(ctx, config = {}) {
         cwd: config.cwd ?? ConfigDefaults.cwd,
         ...config.maxTokens !== undefined ? { maxTokens: config.maxTokens } : {},
     };
+    // Ensure the working directory exists so fresh sessions can actually start
+    // in it (best effort; a custom cwd pointing elsewhere is the user's call).
+    try {
+        mkdirSync(runtimeConfig.cwd, { recursive: true });
+    }
+    catch {
+        // Ignore: an unusable cwd surfaces at session creation, not at boot.
+    }
     /** Fold one resolved settings value onto the live bridge config. */
     const applyResolvedConfig = (value) => {
         runtimeConfig.provider = value.provider;
@@ -148,7 +161,13 @@ export function apply(ctx, config = {}) {
                             };
                         }
                         try {
-                            await scope.update(patch);
+                            const normalized = { ...patch };
+                            if (typeof normalized.cwd === 'string' && normalized.cwd.length > 0) {
+                                // The settings document stores paths verbatim; expand `~/` so a
+                                // `~/dsf` typed in the page becomes a real absolute path.
+                                normalized.cwd = expandHome(normalized.cwd);
+                            }
+                            await scope.update(normalized);
                         }
                         catch (error) {
                             return {

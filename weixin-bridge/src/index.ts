@@ -29,6 +29,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type { SettingsNamespace, SettingsScope } from '@deepseek-ai/dsh-settings'
 import z from '@deepseek-ai/schemastery'
+import { mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { isLoggedIn, start, type Bot } from 'weixin-agent-sdk'
@@ -50,11 +51,16 @@ export interface Config extends Partial<BridgeConfig> {
  * The default session working directory: the invoking directory, unless it is
  * the filesystem root — GUI-launched desktop apps start with cwd `/` (or a
  * drive root on Windows), where no harness session should ever work — in
- * which case the user's home directory is used instead.
+ * which case `~/dsf` is used instead.
  */
 function defaultCwd(): string {
   const cwd = process.cwd()
-  return cwd === path.parse(cwd).root ? homedir() : cwd
+  return cwd === path.parse(cwd).root ? path.join(homedir(), 'dsf') : cwd
+}
+
+/** Expand a leading `~/` in a user-supplied path (what the shell would do). */
+function expandHome(input: string): string {
+  return input === '~' || input.startsWith('~/') ? path.join(homedir(), input.slice(1)) : input
 }
 
 /** Default provider/model mirror the shipped headless profile uses. */
@@ -107,6 +113,14 @@ export function apply(ctx: Context, config: Config = {}): void {
     model: config.model ?? ConfigDefaults.model,
     cwd: config.cwd ?? ConfigDefaults.cwd,
     ...config.maxTokens !== undefined ? { maxTokens: config.maxTokens } : {},
+  }
+
+  // Ensure the working directory exists so fresh sessions can actually start
+  // in it (best effort; a custom cwd pointing elsewhere is the user's call).
+  try {
+    mkdirSync(runtimeConfig.cwd, { recursive: true })
+  } catch {
+    // Ignore: an unusable cwd surfaces at session creation, not at boot.
   }
 
   /** Fold one resolved settings value onto the live bridge config. */
@@ -192,7 +206,13 @@ export function apply(ctx: Context, config: Config = {}): void {
               }
             }
             try {
-              await scope.update(patch as Record<string, unknown>)
+              const normalized = { ...patch as Record<string, unknown> }
+              if (typeof normalized.cwd === 'string' && normalized.cwd.length > 0) {
+                // The settings document stores paths verbatim; expand `~/` so a
+                // `~/dsf` typed in the page becomes a real absolute path.
+                normalized.cwd = expandHome(normalized.cwd)
+              }
+              await scope.update(normalized)
             } catch (error) {
               return {
                 ok: false,
