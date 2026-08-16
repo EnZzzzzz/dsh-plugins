@@ -12,12 +12,18 @@
  * harness session created through `ctx.agents`, with replies streaming back
  * as committed assistant text.
  *
+ * The bridge's config (provider/model/cwd/maxTokens) is registered as a
+ * settings namespace (`weixin-bridge`) so the Settings page can read and edit
+ * it; edits persist to `$DSH_HOME/settings.yaml` and apply to new sessions
+ * immediately via the namespace's watch.
+ *
  * The plugin is a plain function plugin: named exports only, no default
  * export (see docs/postmortem/0001 in the harness repo).
  *
  * @module dsh-weixin-bridge
  */
 import type { Context } from '@deepseek-ai/cordis';
+import z from '@deepseek-ai/schemastery';
 import { type BridgeConfig } from './bridge.js';
 export declare const name = "weixin-bridge";
 /** The harness services this plugin requires before it activates. */
@@ -29,6 +35,19 @@ export interface Config extends Partial<BridgeConfig> {
 }
 /** Default provider/model mirror the shipped headless profile uses. */
 export declare const ConfigDefaults: Required<Omit<Config, 'maxTokens'>> & Pick<Config, 'maxTokens'>;
+/** The user-writable slice of the bridge config (the settings namespace value). */
+export interface WeixinBridgeSettings {
+    /** Provider route for created agents. */
+    provider: string;
+    /** Model id interpreted by the selected provider adapter. */
+    model: string;
+    /** Working directory for fresh sessions. */
+    cwd: string;
+    /** Maximum output tokens per request; unset defers to the provider. */
+    maxTokens?: number;
+}
+/** Schema for the settings namespace; optionality is expressed in the TS type. */
+export declare const WeixinBridgeSettingsSchema: z<WeixinBridgeSettings>;
 /**
  * Mount the WeChat bridge.
  * @param ctx - Cordis context carrying the agent registry.

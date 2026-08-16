@@ -16,6 +16,7 @@
     "declaration": true,
     "sourceMap": false,
     "paths": {
+      "@deepseek-ai/dsh-settings": ["/Users/en/Documents/proj/public/deepseek-harness/packages/settings/settings/lib/types/index.d.ts"],
       "@deepseek-ai/dsh-client-connection": ["/Users/en/Documents/proj/public/deepseek-harness/packages/client/connection/lib/types/index.d.ts"],
       "@deepseek-ai/dsh-client-connection/client": ["/Users/en/Documents/proj/public/deepseek-harness/packages/client/connection/lib/types/client/index.d.ts"],
       "@deepseek-ai/dsh-client-runtime/client": ["/Users/en/Documents/proj/public/deepseek-harness/packages/client/runtime/lib/types/client/index.d.ts"],

@@ -2539,11 +2539,12 @@ window.__ModuleLoader__.load({
 		//#endregion
 		//#region src/client/SocialChannelsSection.tsx
 		/**
-		* Social Channels settings page — the browser half's main surface. Unlike the
-		* static v1 orientation page, it drives the host's WeChat QR login over the
-		* dedicated `/weixin-bridge` RPC channel (`connection.rpc.call`): it shows the
-		* live QR code, polls status while mounted, and offers start / refresh /
-		* cancel actions. No terminal needed.
+		* Social Channels settings page — the browser half's main surface. It drives
+		* the host's WeChat QR login over the dedicated `/weixin-bridge` RPC channel
+		* (`connection.rpc.call`): live QR code, status polling, and start / refresh /
+		* cancel actions. It also reads and edits the bridge's config (provider,
+		* model, cwd, maxTokens) through `get-config` / `set-config`, persisted by the
+		* host into the settings document and applied to new sessions immediately.
 		*
 		* @module dsh-weixin-bridge/client
 		*/
@@ -2608,15 +2609,52 @@ window.__ModuleLoader__.load({
 				children
 			});
 		}
+		/** One labelled config input row. */
+		function ConfigField({ label, hint, value, onChange, type = "text" }) {
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				style: {
+					display: "flex",
+					gap: "12px",
+					alignItems: "center",
+					padding: "6px 0"
+				},
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					style: {
+						width: "120px",
+						flexShrink: 0,
+						color: "var(--dsw-text-secondary, #888)"
+					},
+					children: label
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+					type,
+					value,
+					onChange: (event) => onChange(event.target.value),
+					placeholder: hint,
+					style: {
+						flex: 1,
+						minWidth: 0,
+						padding: "6px 10px",
+						borderRadius: "6px",
+						border: "1px solid var(--dsw-border, #d0d0d0)",
+						background: "var(--dsw-surface, #fff)",
+						color: "var(--dsw-text, #222)",
+						font: "inherit"
+					}
+				})]
+			});
+		}
 		/**
-		* Interactive WeChat connection page: live QR code + status, driven through
-		* the `/weixin-bridge` RPC channel.
+		* Interactive WeChat connection page: live QR code + status and editable
+		* bridge config, driven through the `/weixin-bridge` RPC channel.
 		*/
 		function SocialChannelsSection(props) {
 			const { connection } = props;
 			const [status, setStatus] = (0, react.useState)(void 0);
 			const [busy, setBusy] = (0, react.useState)(false);
 			const [callError, setCallError] = (0, react.useState)(void 0);
+			const [configInput, setConfigInput] = (0, react.useState)(void 0);
+			const [configError, setConfigError] = (0, react.useState)(void 0);
+			const [configSaved, setConfigSaved] = (0, react.useState)(false);
 			const refresh = (0, react.useCallback)(async () => {
 				try {
 					const result = await connection.rpc.call("/weixin-bridge", "status", {});
@@ -2628,13 +2666,25 @@ window.__ModuleLoader__.load({
 					setCallError(error instanceof Error ? error.message : String(error));
 				}
 			}, [connection]);
+			const refreshConfig = (0, react.useCallback)(async () => {
+				try {
+					const result = await connection.rpc.call("/weixin-bridge", "get-config", {});
+					if (result.ok) {
+						setConfigInput(result.value);
+						setConfigError(void 0);
+					} else setConfigError(result.error.message);
+				} catch (error) {
+					setConfigError(error instanceof Error ? error.message : String(error));
+				}
+			}, [connection]);
 			(0, react.useEffect)(() => {
 				refresh();
+				refreshConfig();
 				const timer = setInterval(() => {
 					refresh();
 				}, POLL_INTERVAL_MS);
 				return () => clearInterval(timer);
-			}, [refresh]);
+			}, [refresh, refreshConfig]);
 			const startLogin = (0, react.useCallback)(async () => {
 				setBusy(true);
 				try {
@@ -2663,6 +2713,30 @@ window.__ModuleLoader__.load({
 					setBusy(false);
 				}
 			}, [connection]);
+			const saveConfig = (0, react.useCallback)(async () => {
+				if (configInput === void 0) return;
+				setBusy(true);
+				setConfigSaved(false);
+				try {
+					const patch = {
+						provider: configInput.provider.trim(),
+						model: configInput.model.trim(),
+						cwd: configInput.cwd.trim()
+					};
+					const maxTokens = Number(configInput.maxTokens);
+					if (Number.isInteger(maxTokens) && maxTokens > 0) patch.maxTokens = maxTokens;
+					const result = await connection.rpc.call("/weixin-bridge", "set-config", { patch });
+					if (result.ok) {
+						setConfigInput(result.value);
+						setConfigError(void 0);
+						setConfigSaved(true);
+					} else setConfigError(result.error.message);
+				} catch (error) {
+					setConfigError(error instanceof Error ? error.message : String(error));
+				} finally {
+					setBusy(false);
+				}
+			}, [connection, configInput]);
 			const phase = status?.phase ?? "idle";
 			const message = status?.message;
 			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
@@ -2794,6 +2868,95 @@ window.__ModuleLoader__.load({
 								})
 							]
 						})]
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h3", {
+						style: { margin: "20px 0 8px" },
+						children: "配置"
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("p", {
+						style: {
+							margin: "0 0 8px",
+							color: "var(--dsw-text-secondary, #888)",
+							fontSize: "12px"
+						},
+						children: [
+							"修改 provider / model / cwd / maxTokens。保存后持久化到设置文档，对",
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("strong", { children: "新的微信会话" }),
+							"立即生效（已在进行的会话不受影响）。"
+						]
+					}),
+					configError !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("p", {
+						style: {
+							margin: "0 0 8px",
+							color: "#c0392b"
+						},
+						children: ["配置读写失败：", configError]
+					}),
+					configInput === void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+						style: { color: "var(--dsw-text-secondary, #888)" },
+						children: "加载配置中…"
+					}) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						style: { maxWidth: "480px" },
+						children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(ConfigField, {
+								label: "provider",
+								hint: "模型路由，如 deepseek-official",
+								value: configInput.provider,
+								onChange: (provider) => setConfigInput((prev) => prev === void 0 ? prev : {
+									...prev,
+									provider
+								})
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(ConfigField, {
+								label: "model",
+								hint: "模型名，如 deepseek-v4-flash",
+								value: configInput.model,
+								onChange: (model) => setConfigInput((prev) => prev === void 0 ? prev : {
+									...prev,
+									model
+								})
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(ConfigField, {
+								label: "cwd",
+								hint: "新会话的工作目录",
+								value: configInput.cwd,
+								onChange: (cwd) => setConfigInput((prev) => prev === void 0 ? prev : {
+									...prev,
+									cwd
+								})
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(ConfigField, {
+								label: "maxTokens",
+								hint: "留空使用默认",
+								type: "number",
+								value: configInput.maxTokens === void 0 ? "" : String(configInput.maxTokens),
+								onChange: (maxTokens) => setConfigInput((prev) => prev === void 0 ? prev : {
+									...prev,
+									maxTokens: maxTokens.trim() === "" ? void 0 : Number(maxTokens)
+								})
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								style: {
+									display: "flex",
+									gap: "8px",
+									alignItems: "center",
+									marginTop: "10px"
+								},
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(ActionButton, {
+									onClick: () => {
+										saveConfig();
+									},
+									disabled: busy,
+									children: "保存配置"
+								}), configSaved && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									style: {
+										color: "#2e7d32",
+										fontSize: "13px"
+									},
+									children: "已保存 ✓"
+								})]
+							})
+						]
 					})
 				]
 			});

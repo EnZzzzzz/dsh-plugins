@@ -12,6 +12,11 @@
  * harness session created through `ctx.agents`, with replies streaming back
  * as committed assistant text.
  *
+ * The bridge's config (provider/model/cwd/maxTokens) is registered as a
+ * settings namespace (`weixin-bridge`) so the Settings page can read and edit
+ * it; edits persist to `$DSH_HOME/settings.yaml` and apply to new sessions
+ * immediately via the namespace's watch.
+ *
  * The plugin is a plain function plugin: named exports only, no default
  * export (see docs/postmortem/0001 in the harness repo).
  *
@@ -22,6 +27,8 @@ import type { Context } from '@deepseek-ai/cordis'
 // Type-only: brings the `Context.connection` merge (HostConnectionHandle) into
 // this program so the deferred inject callback is fully typed.
 import type {} from '@deepseek-ai/dsh-client-connection'
+import type { SettingsNamespace, SettingsScope } from '@deepseek-ai/dsh-settings'
+import z from '@deepseek-ai/schemastery'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { isLoggedIn, start, type Bot } from 'weixin-agent-sdk'
@@ -58,6 +65,29 @@ export const ConfigDefaults: Required<Omit<Config, 'maxTokens'>> & Pick<Config, 
   cwd: defaultCwd(),
 }
 
+/** The user-writable slice of the bridge config (the settings namespace value). */
+export interface WeixinBridgeSettings {
+  /** Provider route for created agents. */
+  provider: string
+  /** Model id interpreted by the selected provider adapter. */
+  model: string
+  /** Working directory for fresh sessions. */
+  cwd: string
+  /** Maximum output tokens per request; unset defers to the provider. */
+  maxTokens?: number
+}
+
+/** Settings namespace id of this bridge's config surface. */
+const WEIXIN_BRIDGE_SETTINGS_NAMESPACE = 'weixin-bridge' as SettingsNamespace
+
+/** Schema for the settings namespace; optionality is expressed in the TS type. */
+export const WeixinBridgeSettingsSchema: z<WeixinBridgeSettings> = z.object({
+  provider: z.string(),
+  model: z.string(),
+  cwd: z.string(),
+  maxTokens: z.natural(),
+})
+
 /**
  * Mount the WeChat bridge.
  * @param ctx - Cordis context carrying the agent registry.
@@ -69,13 +99,25 @@ export function apply(ctx: Context, config: Config = {}): void {
     ctx.logger.info('[weixin-bridge] disabled; set enabled: true in cordis.yml to connect WeChat')
     return
   }
-  const bridgeConfig: BridgeConfig = {
+
+  // Mutable runtime config: new conversations read it at create time, so the
+  // settings surface can change cwd/provider/model without a restart.
+  const runtimeConfig: BridgeConfig = {
     provider: config.provider ?? ConfigDefaults.provider,
     model: config.model ?? ConfigDefaults.model,
     cwd: config.cwd ?? ConfigDefaults.cwd,
     ...config.maxTokens !== undefined ? { maxTokens: config.maxTokens } : {},
   }
-  const bridge = createWeixinAgent(ctx, bridgeConfig)
+
+  /** Fold one resolved settings value onto the live bridge config. */
+  const applyResolvedConfig = (value: WeixinBridgeSettings): void => {
+    runtimeConfig.provider = value.provider
+    runtimeConfig.model = value.model
+    runtimeConfig.cwd = value.cwd
+    runtimeConfig.maxTokens = value.maxTokens
+  }
+
+  const bridge = createWeixinAgent(ctx, runtimeConfig)
   const abort = new AbortController()
 
   /** Start the SDK monitor once a login is confirmed (or already exists). */
@@ -104,13 +146,33 @@ export function apply(ctx: Context, config: Config = {}): void {
       void manager.start()
     }
 
-    // The browser half reads status and starts/stops logins through this
-    // channel. It lives on `ctx.connection`, which web profiles provide via
-    // `client-connection`; the deferred inject waits for the service without
-    // blocking (or failing) compositions that never mount it.
-    ctx.inject(['connection'], (connectionCtx) => {
-      const connection = connectionCtx.connection
-      connection.rpc.handle('/weixin-bridge', async (endpoint, _payload, _signal) => {
+    // The browser half drives login and config through this channel. It needs
+    // both the connection service (web profiles) and the settings service
+    // (base bundle); the deferred inject waits for them without blocking (or
+    // failing) compositions that never mount them.
+    ctx.inject(['connection', 'settings'], (apiCtx) => {
+      const scope = apiCtx.settings.register(
+        WEIXIN_BRIDGE_SETTINGS_NAMESPACE,
+        WeixinBridgeSettingsSchema,
+        {
+          // The boot-time cordis config is the composition base; the user
+          // layer (settings.yaml, written by the page) overrides it.
+          base: {
+            provider: runtimeConfig.provider,
+            model: runtimeConfig.model,
+            cwd: runtimeConfig.cwd,
+            ...runtimeConfig.maxTokens === undefined ? {} : { maxTokens: runtimeConfig.maxTokens },
+          },
+          applies: 'live',
+        },
+      )
+      applyResolvedConfig(scope.get())
+      apiCtx.effect(
+        () => scope.watch((next) => applyResolvedConfig(next)),
+        'weixin-bridge: settings watch',
+      )
+
+      apiCtx.connection.rpc.handle('/weixin-bridge', async (endpoint, payload, _signal) => {
         switch (endpoint) {
           case 'status':
             return { ok: true, value: manager.status() }
@@ -119,6 +181,30 @@ export function apply(ctx: Context, config: Config = {}): void {
           case 'stop-login':
             manager.stop()
             return { ok: true, value: manager.status() }
+          case 'get-config':
+            return { ok: true, value: scope.get() }
+          case 'set-config': {
+            const patch = (payload as { patch?: unknown } | null | undefined)?.patch
+            if (typeof patch !== 'object' || patch === null || Array.isArray(patch)) {
+              return {
+                ok: false,
+                error: { code: 'internal', message: 'set-config requires a JSON object patch', details: {} },
+              }
+            }
+            try {
+              await scope.update(patch as Record<string, unknown>)
+            } catch (error) {
+              return {
+                ok: false,
+                error: {
+                  code: 'internal',
+                  message: error instanceof Error ? error.message : String(error),
+                  details: {},
+                },
+              }
+            }
+            return { ok: true, value: scope.get() }
+          }
           default:
             return {
               ok: false,
