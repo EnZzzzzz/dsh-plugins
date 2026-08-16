@@ -12,10 +12,22 @@
 
 import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
-import type { AgentHandle } from '@deepseek-ai/dsh-agent'
+import type { AgentHandle, AgentSetup } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Agent as WeixinAgent, ChatRequest, ChatResponse } from 'weixin-agent-sdk'
+
+/**
+ * Minimal structural face of the `agentPresets` service the bridge consumes.
+ * Declared locally (not imported from the package) so the plugin never drags a
+ * second, version-drifted copy of the host's type graph into its build.
+ */
+interface AgentPresetsService {
+  /** Resolve one preset by id, or the deployment default when omitted. */
+  resolve(id?: string): Promise<{ id: string }>
+  /** Compose one preset onto an agent's scope context (the factory setup). */
+  mount(agentCtx: Context, id: string): Promise<unknown>
+}
 
 /** Bridge configuration. */
 export interface BridgeConfig {
@@ -72,14 +84,34 @@ export function createWeixinAgent(ctx: Context, config: BridgeConfig): WeixinAge
   const ensureConversation = async (conversationId: string): Promise<ConversationRecord> => {
     const existing = conversations.get(conversationId)
     if (existing !== undefined) return existing
+
+    // Compose the deployment's default agent preset, exactly like the web app
+    // does: presets own the tool schemas (bash, fs, …). Without one the agent
+    // gets no tools, the model falls back to emitting <tool_calls> text, and
+    // nothing ever executes.
+    const presets = ctx.get('agentPresets') as AgentPresetsService | undefined
+    let agentPreset: string | undefined
+    let setup: AgentSetup | undefined
+    if (presets !== undefined) {
+      const resolved = await presets.resolve()
+      agentPreset = resolved.id
+      setup = async (agentCtx: Context): Promise<void> => {
+        await presets.mount(agentCtx, resolved.id)
+      }
+    }
+
     const handle = await ctx.agents.create({
       sessionId: SessionId(randomUUID()),
-      meta: { cwd: config.cwd },
+      meta: {
+        cwd: config.cwd,
+        ...agentPreset === undefined ? {} : { agentPreset },
+      },
       agentOptions: {
         ...config.provider !== '' ? { provider: config.provider } : {},
         ...config.model !== '' ? { model: config.model } : {},
         ...config.maxTokens !== undefined ? { maxTokens: config.maxTokens } : {},
       },
+      ...setup === undefined ? {} : { setup },
     })
     const record: ConversationRecord = { handle, inflight: Promise.resolve() }
     conversations.set(conversationId, record)
