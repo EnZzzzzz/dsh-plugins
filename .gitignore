@@ -9,3 +9,7 @@ node_modules/
 
 # logs
 *.log
+
+# local GCP VPN ops (kept out of the repo)
+gcp-vpn-ops.md
+gcp-vpn-startup.sh
