@@ -1,7 +1,7 @@
 # GCP 翻墙节点运维文档
 
-> 一台 Google Cloud 免费层级 VPS 上的 hy2 + tuic 双协议节点，含订阅托管。
-> 读完本文即可独立完成日常修改与维护。最后更新：2026-08-16
+> 一台 Google Cloud 免费层级 VPS 上的 hy2 + tuic 双协议节点，含订阅托管（带流量统计）与配置版本管理。
+> 读完本文即可独立完成日常修改与维护。最后更新：2026-08-16（v8 脚本）
 
 ## 1. 总览
 
@@ -11,7 +11,9 @@
         ▼
 GCP 实例 vpn-node (us-west1-b, e2-micro, Debian 13)
         └─ sing-box（官方原版，两个协议一个进程）
-        └─ python3 http.server :80（托管订阅 yaml）
+        └─ sub-server.py :80（托管订阅 yaml，返回 Subscription-Userinfo 流量信息头）
+        └─ iptables VPN-IN/VPN-OUT 链（统计 443/8443 流量）
+        └─ /etc/vpn/repo（git 仓库，每次开机自动提交配置）
         ▼
     出站到目标网站
 ```
@@ -66,8 +68,27 @@ http://35.212.220.175/sub-736079d1.yaml
 | `/etc/sing-box/config.json` | sing-box 配置（hy2 + tuic 入站） |
 | `/etc/sing-box/cert.pem` / `key.pem` | 自签证书（CN=www.bing.com，10 年） |
 | `/var/www/sub/sub-736079d1.yaml` | 订阅文件（由脚本内嵌内容生成） |
+| `/usr/local/bin/sub-server.py` | 订阅 HTTP 服务（见下「流量统计显示」） |
+| `/etc/vpn/traffic.json` | 流量累计状态（跨重启、跨月自动清零） |
+| `/etc/vpn/repo/` | git 仓库，每次开机自动提交 config/订阅/订阅服务脚本三份文件 |
 | `/var/log/vpn-setup.log` | 启动脚本执行日志（排查首选） |
 | systemd 服务 | `sing-box.service`、`sub-serve.service`（均开机自启 + 失败自动重启） |
+
+### 流量统计显示（Subscription-Userinfo）
+
+客户端（Clash Verge / Shadowrocket 等）订阅卡片上的「已用 / 总量」来自订阅接口的
+`Subscription-Userinfo` 响应头。实现方式：
+
+- 启动脚本建立 iptables 链 `VPN-IN`（udp dport 443/8443，= 用户上传）和 `VPN-OUT`（udp sport 443/8443，= 用户下载），只计数不拦截
+- `sub-server.py` 每次收到订阅请求时读计数器，叠加 `/etc/vpn/traffic.json` 里的基数（解决重启后计数器归零），按自然月清零
+- 总量写死 200GiB（Standard 层级免费出站额度），到期时间为次月 1 号
+- 订阅内容里还会动态注入两个"信息节点"（仿机场做法）：`剩余流量：xx GB` 和 `流量重置：yyyy-mm-dd`，是 127.0.0.1 的 dummy ss 节点，仅供 Shadowrocket / Clash Verge 节点列表里展示用，选中它没有网络；注入逻辑在 `sub-server.py` 的 do_GET 里，静态 yaml 模板（仓库里的 `clash-verge-nodes.yaml`）不含这两个节点
+- 注意：卡片显示的"已用"是上传+下载之和，而 GCP 只对下载（出站）计费，所以显示偏保守
+- 该服务只实现了 GET；用 `curl -I`（HEAD）测会返回 501，要用 `curl -s -D - -o /dev/null <订阅地址>` 验证
+
+### 配置版本管理（实例上的 git）
+
+启动脚本每次开机把 `config.json`、订阅 yaml、`sub-server.py` 复制到 `/etc/vpn/repo` 并自动 commit（message 为开机时间）。重置实例不清磁盘，历史持续累积。改坏了想回退：看 `/etc/vpn/repo` 的 git log 找到旧版本内容，改进启动脚本后重置。本地仓库的 `gcp-vpn-startup.sh` 是启动脚本的副本，两边同步改。
 
 ### sing-box 配置要点（改配置时注意）
 
@@ -130,7 +151,10 @@ apt-get install -y --reinstall openssh-server && systemctl enable --now ssh
 3. **保存启动脚本后立刻重置** → 元数据可能没写进去，重启跑的还是旧脚本。教训：保存后回编辑页核对一次再重置
 4. **改网络层级（Premium↔Standard）会更换临时 IP** → 订阅里的 IP 全部失效。现已用静态 IP 根治
 5. **手机客户端延迟能测出来但上不了网** → iOS VPN 隧道没建立（状态栏无 VPN 图标），和节点无关；本例中换 Shadowrocket 解决（Clash Mi 隧道异常）
+6. **改完启动脚本重置后，旧服务还在跑** → `systemctl enable --now xxx` 对已在运行的服务**不会重启**它；重置后旧进程从磁盘上的旧 unit 启动，脚本里的 `enable --now` 不会替换它。脚本里必须用 `enable` + `restart`（v8 已修）
+7. **验证订阅接口用 `curl -I` 看到 501** → 新的 sub-server.py 只实现 GET，HEAD 请求返回 501 是正常的，用 `curl -s -D - -o /dev/null` 验证
 
 ## 8. 本仓库文件
 
 - `clash-verge-nodes.yaml` —— 订阅源文件（与实例上 `/var/www/sub/sub-736079d1.yaml` 内容一致；改订阅内容时两边同步：改这里 + 改启动脚本内嵌副本 + 重置实例）
+- `gcp-vpn-startup.sh` —— 实例启动脚本当前版本（v8）的副本；控制台的启动脚本以这份为准

@@ -74,7 +74,8 @@ WantedBy=multi-user.target
 EOS
 
 systemctl daemon-reload
-systemctl enable --now sing-box
+systemctl enable sing-box
+systemctl restart sing-box
 
 echo 'net.core.default_qdisc=fq' >> /etc/sysctl.conf
 echo 'net.ipv4.tcp_congestion_control=bbr' >> /etc/sysctl.conf
@@ -198,8 +199,30 @@ class Handler(BaseHTTPRequestHandler):
             nxt = now.replace(year=now.year + 1, month=1, day=1, hour=0, minute=0, second=0)
         else:
             nxt = now.replace(month=now.month + 1, day=1, hour=0, minute=0, second=0)
-        with open(YAML_FILE, "rb") as fh:
-            body = fh.read()
+        # 动态注入"信息节点"（仿机场做法）：节点名显示剩余流量和重置日
+        with open(YAML_FILE, "r", encoding="utf-8") as fh:
+            text = fh.read()
+        remaining = max(TOTAL - up - down, 0) / 1024 ** 3
+        reset_day = nxt.strftime("%Y-%m-%d")
+        info_nodes = (
+            '  - name: "剩余流量：%.2f GB"\n'
+            '    type: ss\n'
+            '    server: 127.0.0.1\n'
+            '    port: 10000\n'
+            '    cipher: aes-128-gcm\n'
+            '    password: "info"\n'
+            '  - name: "流量重置：%s"\n'
+            '    type: ss\n'
+            '    server: 127.0.0.1\n'
+            '    port: 10000\n'
+            '    cipher: aes-128-gcm\n'
+            '    password: "info"\n'
+        ) % (remaining, reset_day)
+        text = text.replace("proxies:\n", "proxies:\n" + info_nodes, 1)
+        grp = ('      - "剩余流量：%.2f GB"\n'
+               '      - "流量重置：%s"\n') % (remaining, reset_day)
+        text = text.replace("      - GCP-hy2\n", grp + "      - GCP-hy2\n", 1)
+        body = text.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/yaml; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -231,7 +254,8 @@ WantedBy=multi-user.target
 EOSVC
 
 systemctl daemon-reload
-systemctl enable --now sub-serve
+systemctl enable sub-serve
+systemctl restart sub-serve
 
 # --- 配置版本管理：/etc/vpn/repo 下 git 仓库，每次开机自动提交 ---
 mkdir -p /etc/vpn/repo
