@@ -64,7 +64,9 @@ function expandHome(input: string): string {
 }
 
 /** Default provider/model mirror the shipped headless profile uses. */
-export const ConfigDefaults: Required<Omit<Config, 'maxTokens'>> & Pick<Config, 'maxTokens'> = {
+export const ConfigDefaults:
+  & Required<Omit<Config, 'maxTokens' | 'turnTimeoutMs'>>
+  & Pick<Config, 'maxTokens' | 'turnTimeoutMs'> = {
   enabled: true,
   provider: 'deepseek-official',
   model: 'deepseek-v4-flash',

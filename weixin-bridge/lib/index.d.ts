@@ -34,7 +34,7 @@ export interface Config extends Partial<BridgeConfig> {
     enabled?: boolean;
 }
 /** Default provider/model mirror the shipped headless profile uses. */
-export declare const ConfigDefaults: Required<Omit<Config, 'maxTokens'>> & Pick<Config, 'maxTokens'>;
+export declare const ConfigDefaults: Required<Omit<Config, 'maxTokens' | 'turnTimeoutMs'>> & Pick<Config, 'maxTokens' | 'turnTimeoutMs'>;
 /** The user-writable slice of the bridge config (the settings namespace value). */
 export interface WeixinBridgeSettings {
     /** Provider route for created agents. */

@@ -13,6 +13,23 @@ import { randomUUID } from 'node:crypto';
 import { createUserMessage } from '@deepseek-ai/dsh-llm';
 import { SessionId } from '@deepseek-ai/dsh-session';
 /**
+ * Default upper bound for one chat turn (see {@link BridgeConfig.turnTimeoutMs}).
+ */
+const TURN_TIMEOUT_MS = 5 * 60_000;
+/** Sentinel distinguishing a timed-out turn from ordinary processing errors. */
+class TurnTimeoutError extends Error {
+    constructor() {
+        super('turn timed out');
+        this.name = 'TurnTimeoutError';
+    }
+}
+/** Abortable-free delay used for the turn timeout race. */
+function sleep(ms) {
+    return new Promise((resolve) => { setTimeout(resolve, ms); });
+}
+/** Interactive tools that wait for a UI answer nobody can give on WeChat. */
+const NON_INTERACTIVE_TOOL_DENYLIST = ['ask_user_question'];
+/**
  * Build the weixin-agent-sdk `Agent` implementation over a harness context.
  * @param ctx - Cordis context carrying the agent registry (`ctx.agents`).
  * @param config - provider/model/cwd selection for created agents.
@@ -51,6 +68,19 @@ export function createWeixinAgent(ctx, config) {
             agentPreset = resolved.id;
             setup = async (agentCtx) => {
                 await presets.mount(agentCtx, resolved.id);
+                // WeChat has no interactive surface: hide tools that wait for a UI
+                // answer (ask_user_question) so a turn can never hang on one.
+                const tools = agentCtx.tools;
+                if (tools !== undefined) {
+                    try {
+                        tools.restrict({ deny: NON_INTERACTIVE_TOOL_DENYLIST });
+                    }
+                    catch (error) {
+                        // A composition without the tool (or a newer scope API) must not
+                        // break session setup; the timeout safety net still applies.
+                        ctx.logger?.warn?.(`[weixin-bridge] tool restriction skipped: ${error instanceof Error ? error.message : String(error)}`);
+                    }
+                }
             };
         }
         const handle = await ctx.agents.create({
@@ -94,9 +124,11 @@ export function createWeixinAgent(ctx, config) {
             return { text: '收到空消息。' };
         }
         const text = `${request.text}${request.media === undefined ? '' : renderMedia(request.media)}`;
+        let record;
         try {
-            const record = await ensureConversation(conversationId);
-            return enqueue(conversationId, async () => {
+            record = await ensureConversation(conversationId);
+            // `await` so a rejecting turn (timeout) is caught by this try/catch.
+            return await enqueue(conversationId, async () => {
                 const agent = record.handle.agent;
                 // A disposed agent cannot accept the item; recreate on the next message.
                 if (ctx.agents.get(agent.id) !== agent) {
@@ -110,7 +142,17 @@ export function createWeixinAgent(ctx, config) {
                 pending.set(agent.session.id, buffer);
                 try {
                     agent.followup(message);
-                    await agent.whenIdle();
+                    // WeChat is a non-interactive channel: a turn that stalls on an
+                    // unanswerable interactive tool or approval would otherwise wedge
+                    // the SDK monitor forever (it awaits chat() serially). Time out and
+                    // let the caller cancel the turn instead.
+                    const timeout = sleep(config.turnTimeoutMs ?? TURN_TIMEOUT_MS).then(() => {
+                        throw new TurnTimeoutError();
+                    });
+                    // Mark the timeout branch handled so a normal finish never leaks
+                    // an unhandled rejection from the losing race arm.
+                    timeout.catch(() => { });
+                    await Promise.race([agent.whenIdle(), timeout]);
                 }
                 finally {
                     pending.delete(agent.session.id);
@@ -120,6 +162,17 @@ export function createWeixinAgent(ctx, config) {
             });
         }
         catch (error) {
+            if (error instanceof TurnTimeoutError && record !== undefined) {
+                // Un-wedge the conversation: cancel the stuck turn so the next
+                // message starts a fresh turn instead of queueing behind a hung one.
+                try {
+                    record.handle.agent.cancel({ kind: 'user' });
+                }
+                catch {
+                    // Best effort; the session is recreated on the next message anyway.
+                }
+                return { text: '处理超时，请再发一次。' };
+            }
             return { text: `处理失败：${error instanceof Error ? error.message : String(error)}` };
         }
     };

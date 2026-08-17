@@ -29,6 +29,11 @@ interface AgentPresetsService {
   mount(agentCtx: Context, id: string): Promise<unknown>
 }
 
+/** Structural face of the tools service's per-agent restriction (dsh-tools). */
+interface ToolsRestrictFace {
+  restrict(filter: { deny?: string[]; allow?: string[] }): unknown
+}
+
 /** Bridge configuration. */
 export interface BridgeConfig {
   /** Provider route for created agents (must have a registered adapter at call time). */
@@ -39,7 +44,35 @@ export interface BridgeConfig {
   cwd: string
   /** Maximum output tokens for each conversation-model request. */
   maxTokens?: number
+  /**
+   * Upper bound for one chat turn. WeChat is non-interactive and the SDK
+   * awaits `chat()` serially, so a stalled turn (an unanswerable interactive
+   * tool, a pending approval nobody can grant) would otherwise wedge the whole
+   * channel. Defaults to {@link TURN_TIMEOUT_MS}.
+   */
+  turnTimeoutMs?: number
 }
+
+/**
+ * Default upper bound for one chat turn (see {@link BridgeConfig.turnTimeoutMs}).
+ */
+const TURN_TIMEOUT_MS = 5 * 60_000
+
+/** Sentinel distinguishing a timed-out turn from ordinary processing errors. */
+class TurnTimeoutError extends Error {
+  constructor() {
+    super('turn timed out')
+    this.name = 'TurnTimeoutError'
+  }
+}
+
+/** Abortable-free delay used for the turn timeout race. */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => { setTimeout(resolve, ms) })
+}
+
+/** Interactive tools that wait for a UI answer nobody can give on WeChat. */
+const NON_INTERACTIVE_TOOL_DENYLIST = ['ask_user_question']
 
 /** One WeChat conversation's live harness session. */
 interface ConversationRecord {
@@ -97,6 +130,18 @@ export function createWeixinAgent(ctx: Context, config: BridgeConfig): WeixinAge
       agentPreset = resolved.id
       setup = async (agentCtx: Context): Promise<void> => {
         await presets.mount(agentCtx, resolved.id)
+        // WeChat has no interactive surface: hide tools that wait for a UI
+        // answer (ask_user_question) so a turn can never hang on one.
+        const tools = (agentCtx as unknown as { tools?: ToolsRestrictFace }).tools
+        if (tools !== undefined) {
+          try {
+            tools.restrict({ deny: NON_INTERACTIVE_TOOL_DENYLIST })
+          } catch (error) {
+            // A composition without the tool (or a newer scope API) must not
+            // break session setup; the timeout safety net still applies.
+            ctx.logger?.warn?.(`[weixin-bridge] tool restriction skipped: ${error instanceof Error ? error.message : String(error)}`)
+          }
+        }
       }
     }
 
@@ -146,10 +191,12 @@ export function createWeixinAgent(ctx: Context, config: BridgeConfig): WeixinAge
       return { text: '收到空消息。' }
     }
     const text = `${request.text}${request.media === undefined ? '' : renderMedia(request.media)}`
+    let record: ConversationRecord | undefined
     try {
-      const record = await ensureConversation(conversationId)
-      return enqueue(conversationId, async () => {
-        const agent = record.handle.agent
+      record = await ensureConversation(conversationId)
+      // `await` so a rejecting turn (timeout) is caught by this try/catch.
+      return await enqueue(conversationId, async () => {
+        const agent = record!.handle.agent
         // A disposed agent cannot accept the item; recreate on the next message.
         if (ctx.agents.get(agent.id) !== agent) {
           return { text: '会话已重置，请再发一次。' }
@@ -162,7 +209,17 @@ export function createWeixinAgent(ctx: Context, config: BridgeConfig): WeixinAge
         pending.set(agent.session.id, buffer)
         try {
           agent.followup(message)
-          await agent.whenIdle()
+          // WeChat is a non-interactive channel: a turn that stalls on an
+          // unanswerable interactive tool or approval would otherwise wedge
+          // the SDK monitor forever (it awaits chat() serially). Time out and
+          // let the caller cancel the turn instead.
+          const timeout = sleep(config.turnTimeoutMs ?? TURN_TIMEOUT_MS).then(() => {
+            throw new TurnTimeoutError()
+          })
+          // Mark the timeout branch handled so a normal finish never leaks
+          // an unhandled rejection from the losing race arm.
+          timeout.catch(() => {})
+          await Promise.race([agent.whenIdle(), timeout])
         } finally {
           pending.delete(agent.session.id)
         }
@@ -170,6 +227,16 @@ export function createWeixinAgent(ctx: Context, config: BridgeConfig): WeixinAge
         return reply.length > 0 ? { text: reply } : { text: '（无回复）' }
       })
     } catch (error) {
+      if (error instanceof TurnTimeoutError && record !== undefined) {
+        // Un-wedge the conversation: cancel the stuck turn so the next
+        // message starts a fresh turn instead of queueing behind a hung one.
+        try {
+          record.handle.agent.cancel({ kind: 'user' })
+        } catch {
+          // Best effort; the session is recreated on the next message anyway.
+        }
+        return { text: '处理超时，请再发一次。' }
+      }
       return { text: `处理失败：${error instanceof Error ? error.message : String(error)}` }
     }
   }

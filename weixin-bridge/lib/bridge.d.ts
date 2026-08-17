@@ -21,6 +21,13 @@ export interface BridgeConfig {
     cwd: string;
     /** Maximum output tokens for each conversation-model request. */
     maxTokens?: number;
+    /**
+     * Upper bound for one chat turn. WeChat is non-interactive and the SDK
+     * awaits `chat()` serially, so a stalled turn (an unanswerable interactive
+     * tool, a pending approval nobody can grant) would otherwise wedge the whole
+     * channel. Defaults to {@link TURN_TIMEOUT_MS}.
+     */
+    turnTimeoutMs?: number;
 }
 /**
  * The WeChat-side agent plus its teardown, as built by {@link createWeixinAgent}.

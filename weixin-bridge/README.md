@@ -76,7 +76,8 @@ dsh --profile weixin
 - **会话映射**：一个微信 `conversationId` 对应一个 Harness session，agent 空闲后保持存活，多轮对话连续。重启后映射丢失（每次启动新建会话）。
 - **主动发消息**：未实现；`Bot.sendMessage` 依赖入站 `context_token`（约 24h 时效），需要先收到过该账号的消息。SDK 的 `start()` 返回的 `Bot` 支持 `sendMessage`，后续版本可加定时提醒等能力。
 - **权限**：agent 的 bash/文件操作受 profile 的 sandbox 策略约束（默认 `workspace-write` + ask）。
-- **依赖**：需要 profile 组合里有 agent 工厂。`@deepseek-ai/dsh-base` 自带 `dsh-agent-loop`（`agents: []`，工厂可用）；若目标 profile 没有 agent 服务，桥接会因注入失败而无法激活。
+- **非交互渠道**：微信会话组合默认 agent preset（同 web 会话），但隐藏需要 UI 回答的 `ask_user_question` 工具；单轮处理超过 5 分钟（`turnTimeoutMs` 可调）会取消该轮并提示重发，避免交互卡死把整个通道挂起。
+- **依赖**：需要 profile 组合里有 agent 工厂与 agent-presets（`@deepseek-ai/dsh-base` + `dsh-web-app` 自带）。若目标 profile 没有 agent 服务，桥接会因注入失败而无法激活。
 - **页面扫码**：需要 profile 组合里有 `client-connection`（web profile 自带）。其他 profile 退回终端扫码；已登录过（`~/.openclaw/openclaw-weixin` 有账号）时跳过扫码直接连接。
 - **重新登录**：暂不支持在页面里退出/换号；如需换号，删除 `~/.openclaw/openclaw-weixin` 后重启 profile。
 
