@@ -73,7 +73,8 @@ dsh --profile weixin
 ## 行为与限制
 
 - **文本为主**：图片/语音/视频/文件附件当前不转发内容，只在提示文本里附一句说明。
-- **会话映射**：一个微信 `conversationId` 对应一个 Harness session，agent 空闲后保持存活，多轮对话连续。重启后映射丢失（每次启动新建会话）。
+- **会话映射**：一个微信 `conversationId` 对应一个 Harness session，agent 空闲后保持存活，多轮对话连续。重启后映射丢失（每次启动新建会话）。同一会话的并发创建是单飞的（single-flight），不会因为两条消息几乎同时到达而开出两个平行会话。
+- **单实例监控（防重复回复）**：SDK 的长轮询游标是每个账号一份共享文件（`~/.openclaw/openclaw-weixin/accounts/<id>.sync.json`）。如果同时跑着两个 Harness 实例（例如桌面 App 重启后旧 sidecar 没被杀掉、或重复 `dsh --profile web`），每个实例都会用同一个游标轮询同一个账号，每条消息被投递给 N 个实例 → 每个实例回一条，用户就收到 N 条重复回复。插件现在按账号持有跨进程监控锁（`<id>.monitor.lock`，带 pid）：已有另一个存活实例在监听时，本实例跳过监控并告警。另外桥接层对 3 秒内重复投递的相同消息做了去重兜底，即使上游重放也不会重复回复。若仍出现重复回复，先退出所有 App 实例再重新打开一个。
 - **主动发消息**：未实现；`Bot.sendMessage` 依赖入站 `context_token`（约 24h 时效），需要先收到过该账号的消息。SDK 的 `start()` 返回的 `Bot` 支持 `sendMessage`，后续版本可加定时提醒等能力。
 - **权限**：agent 的 bash/文件操作受 profile 的 sandbox 策略约束（默认 `workspace-write` + ask）。
 - **非交互渠道**：微信会话组合默认 agent preset（同 web 会话），但隐藏需要 UI 回答的 `ask_user_question` 工具；单轮处理超过 5 分钟（`turnTimeoutMs` 可调）会取消该轮并提示重发，避免交互卡死把整个通道挂起。

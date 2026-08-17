@@ -99,6 +99,73 @@ export function clearWeixinAccounts() {
         // Best effort: a missing index is treated as "no accounts" everywhere.
     }
 }
+/** Path of the account monitor lock, next to the SDK's sync-buf file. */
+function monitorLockPath(accountId) {
+    return path.join(resolveStateDir(), 'openclaw-weixin', 'accounts', `${accountId}.monitor.lock`);
+}
+/** True when `pid` belongs to a live process on this host. */
+function isPidAlive(pid) {
+    if (!Number.isInteger(pid) || pid <= 0)
+        return false;
+    try {
+        process.kill(pid, 0);
+        return true;
+    }
+    catch (error) {
+        // EPERM means the process exists but belongs to another user: treat as
+        // alive. Any other error (ESRCH …) means it is gone.
+        return error?.code === 'EPERM';
+    }
+}
+/**
+ * Claim the account's monitor lock for this process.
+ * @param accountId - the SDK account id being monitored.
+ * @returns the live pid of another process that already owns the lock, or
+ *   `undefined` when this process may start the monitor (it either acquired
+ *   the lock or a lock failure fell back to running).
+ */
+export function acquireMonitorLock(accountId) {
+    const filePath = monitorLockPath(accountId);
+    try {
+        mkdirSync(path.dirname(filePath), { recursive: true });
+        let holderPid;
+        try {
+            const parsed = JSON.parse(readFileSync(filePath, 'utf-8'));
+            if (typeof parsed === 'object' && parsed !== null) {
+                const pid = parsed.pid;
+                if (Number.isInteger(pid) && pid !== process.pid && isPidAlive(pid)) {
+                    holderPid = pid;
+                }
+            }
+        }
+        catch {
+            // Missing or unparsable lock file = free to take.
+        }
+        if (holderPid !== undefined)
+            return holderPid;
+        writeFileSync(filePath, JSON.stringify({ pid: process.pid, startedAt: Date.now() }, null, 2), 'utf-8');
+        return undefined;
+    }
+    catch {
+        // A lock failure must never take the channel down: proceed without the
+        // lock (duplicate replies may recur, but the channel keeps working).
+        return undefined;
+    }
+}
+/** Release the account's monitor lock when this process owns it. */
+export function releaseMonitorLock(accountId) {
+    const filePath = monitorLockPath(accountId);
+    try {
+        const parsed = JSON.parse(readFileSync(filePath, 'utf-8'));
+        if (typeof parsed === 'object' && parsed !== null
+            && parsed.pid === process.pid) {
+            rmSync(filePath, { force: true });
+        }
+    }
+    catch {
+        // Nothing to release.
+    }
+}
 /**
  * Drives the QR-code login flow and keeps a JSON-safe status snapshot that the
  * RPC channel serves to the browser. One flow runs at a time; `start()` and

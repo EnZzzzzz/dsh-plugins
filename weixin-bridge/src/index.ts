@@ -34,7 +34,7 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import { isLoggedIn, start, type Bot } from 'weixin-agent-sdk'
 import { createWeixinAgent, type BridgeConfig } from './bridge.js'
-import { WeixinLoginManager } from './weixin-login.js'
+import { acquireMonitorLock, listWeixinAccountIds, releaseMonitorLock, WeixinLoginManager } from './weixin-login.js'
 
 export const name = 'weixin-bridge'
 
@@ -135,16 +135,40 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   const bridge = createWeixinAgent(ctx, runtimeConfig)
   let abort = new AbortController()
+  /** The account this process currently holds the monitor lock for, if any. */
+  let monitorLockAccount: string | undefined
 
   /** Stop the running monitor and discard its abort signal (used by logout). */
   const stopMonitor = (): void => {
     abort.abort()
+    if (monitorLockAccount !== undefined) {
+      releaseMonitorLock(monitorLockAccount)
+      monitorLockAccount = undefined
+    }
     abort = new AbortController()
   }
 
   /** Start the SDK monitor once a login is confirmed (or already exists). */
   const startMonitor = (): void => {
     try {
+      // The SDK's long-poll cursor is one shared file per account. If another
+      // harness instance is already polling this account (e.g. a relaunched
+      // desktop app whose old sidecar survived), every message would be
+      // delivered twice and the user would get one reply per instance. Keep
+      // exactly one monitor per account: skip when another live process owns
+      // the lock, and hold the lock while this monitor runs.
+      const accountId = listWeixinAccountIds()[0]
+      if (accountId !== undefined) {
+        const holderPid = acquireMonitorLock(accountId)
+        if (holderPid !== undefined) {
+          ctx.logger.warn(
+            `[weixin-bridge] 检测到另一个 DeepSeek Harness 实例（pid ${holderPid}）正在监听同一个微信账号，`
+            + '本实例跳过监控以避免重复回复。请退出多余的应用实例，只保留一个。',
+          )
+          return
+        }
+        monitorLockAccount = accountId
+      }
       const bot: Bot = start(bridge.agent, { abortSignal: abort.signal })
       ctx.logger.info('[weixin-bridge] WeChat connected; listening for messages')
       // Surface unrecoverable monitor errors without crashing the harness.
@@ -256,6 +280,10 @@ export function apply(ctx: Context, config: Config = {}): void {
     return async () => {
       manager.stop()
       abort.abort()
+      if (monitorLockAccount !== undefined) {
+        releaseMonitorLock(monitorLockAccount)
+        monitorLockAccount = undefined
+      }
       await bridge.dispose()
     }
   }, 'weixin-bridge.connection')

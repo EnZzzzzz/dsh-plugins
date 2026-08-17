@@ -30,6 +30,14 @@ function sleep(ms) {
 /** Interactive tools that wait for a UI answer nobody can give on WeChat. */
 const NON_INTERACTIVE_TOOL_DENYLIST = ['ask_user_question'];
 /**
+ * Window within which a re-delivered identical message is treated as a
+ * duplicate and skipped. The WeChat long-poll may hand the same message to
+ * `chat()` more than once (server replay, or a sibling monitor that raced on
+ * the shared sync cursor before the per-account lock took effect); without
+ * this the user would receive one reply per delivery.
+ */
+const DEDUP_WINDOW_MS = 3_000;
+/**
  * Build the weixin-agent-sdk `Agent` implementation over a harness context.
  * @param ctx - Cordis context carrying the agent registry (`ctx.agents`).
  * @param config - provider/model/cwd selection for created agents.
@@ -37,6 +45,15 @@ const NON_INTERACTIVE_TOOL_DENYLIST = ['ask_user_question'];
  */
 export function createWeixinAgent(ctx, config) {
     const conversations = new Map();
+    /**
+     * In-flight session creations per conversation. Guards the create path so
+     * two chat() calls racing on the same conversation (a second monitor
+     * delivering the same message) share ONE harness session instead of
+     * materializing two parallel sessions that both answer the user.
+     */
+    const creating = new Map();
+    /** Last delivered message per conversation, for re-delivery dedup. */
+    const lastDelivered = new Map();
     // Collect committed assistant text per session while the loop runs; the
     // conversation's chat() drains this buffer after quiescence.
     const pending = new Map();
@@ -56,49 +73,63 @@ export function createWeixinAgent(ctx, config) {
         const existing = conversations.get(conversationId);
         if (existing !== undefined)
             return existing;
-        // Compose the deployment's default agent preset, exactly like the web app
-        // does: presets own the tool schemas (bash, fs, …). Without one the agent
-        // gets no tools, the model falls back to emitting <tool_calls> text, and
-        // nothing ever executes.
-        const presets = ctx.get('agentPresets');
-        let agentPreset;
-        let setup;
-        if (presets !== undefined) {
-            const resolved = await presets.resolve();
-            agentPreset = resolved.id;
-            setup = async (agentCtx) => {
-                await presets.mount(agentCtx, resolved.id);
-                // WeChat has no interactive surface: hide tools that wait for a UI
-                // answer (ask_user_question) so a turn can never hang on one.
-                const tools = agentCtx.tools;
-                if (tools !== undefined) {
-                    try {
-                        tools.restrict({ deny: NON_INTERACTIVE_TOOL_DENYLIST });
+        // Single-flight: a concurrent chat() for the same conversation awaits the
+        // same creation instead of racing to build a second session.
+        const inflight = creating.get(conversationId);
+        if (inflight !== undefined)
+            return inflight;
+        const created = (async () => {
+            // Compose the deployment's default agent preset, exactly like the web app
+            // does: presets own the tool schemas (bash, fs, …). Without one the agent
+            // gets no tools, the model falls back to emitting <tool_calls> text, and
+            // nothing ever executes.
+            const presets = ctx.get('agentPresets');
+            let agentPreset;
+            let setup;
+            if (presets !== undefined) {
+                const resolved = await presets.resolve();
+                agentPreset = resolved.id;
+                setup = async (agentCtx) => {
+                    await presets.mount(agentCtx, resolved.id);
+                    // WeChat has no interactive surface: hide tools that wait for a UI
+                    // answer (ask_user_question) so a turn can never hang on one.
+                    const tools = agentCtx.tools;
+                    if (tools !== undefined) {
+                        try {
+                            tools.restrict({ deny: NON_INTERACTIVE_TOOL_DENYLIST });
+                        }
+                        catch (error) {
+                            // A composition without the tool (or a newer scope API) must not
+                            // break session setup; the timeout safety net still applies.
+                            ctx.logger?.warn?.(`[weixin-bridge] tool restriction skipped: ${error instanceof Error ? error.message : String(error)}`);
+                        }
                     }
-                    catch (error) {
-                        // A composition without the tool (or a newer scope API) must not
-                        // break session setup; the timeout safety net still applies.
-                        ctx.logger?.warn?.(`[weixin-bridge] tool restriction skipped: ${error instanceof Error ? error.message : String(error)}`);
-                    }
-                }
-            };
+                };
+            }
+            const handle = await ctx.agents.create({
+                sessionId: SessionId(randomUUID()),
+                meta: {
+                    cwd: config.cwd,
+                    ...agentPreset === undefined ? {} : { agentPreset },
+                },
+                agentOptions: {
+                    ...config.provider !== '' ? { provider: config.provider } : {},
+                    ...config.model !== '' ? { model: config.model } : {},
+                    ...config.maxTokens !== undefined ? { maxTokens: config.maxTokens } : {},
+                },
+                ...setup === undefined ? {} : { setup },
+            });
+            const record = { handle, inflight: Promise.resolve() };
+            conversations.set(conversationId, record);
+            return record;
+        })();
+        creating.set(conversationId, created);
+        try {
+            return await created;
         }
-        const handle = await ctx.agents.create({
-            sessionId: SessionId(randomUUID()),
-            meta: {
-                cwd: config.cwd,
-                ...agentPreset === undefined ? {} : { agentPreset },
-            },
-            agentOptions: {
-                ...config.provider !== '' ? { provider: config.provider } : {},
-                ...config.model !== '' ? { model: config.model } : {},
-                ...config.maxTokens !== undefined ? { maxTokens: config.maxTokens } : {},
-            },
-            ...setup === undefined ? {} : { setup },
-        });
-        const record = { handle, inflight: Promise.resolve() };
-        conversations.set(conversationId, record);
-        return record;
+        finally {
+            creating.delete(conversationId);
+        }
     };
     /** Serialize one turn behind the conversation's in-flight turn. */
     const enqueue = (conversationId, turn) => {
@@ -124,6 +155,19 @@ export function createWeixinAgent(ctx, config) {
             return { text: '收到空消息。' };
         }
         const text = `${request.text}${request.media === undefined ? '' : renderMedia(request.media)}`;
+        ctx.logger?.debug?.(`[weixin-bridge] chat from ${conversationId}: ${text.slice(0, 80)}`);
+        // Dedup re-deliveries of the identical message within the window: the
+        // WeChat long-poll can hand one message to chat() several times (server
+        // replay, or a sibling monitor before the per-account lock applied).
+        // Replying to each delivery is exactly how a single message turns into
+        // several identical answers.
+        const now = Date.now();
+        const previous = lastDelivered.get(conversationId);
+        if (previous !== undefined && previous.text === text && now - previous.at < DEDUP_WINDOW_MS) {
+            ctx.logger?.debug?.(`[weixin-bridge] duplicate delivery of "${text.slice(0, 40)}" within ${DEDUP_WINDOW_MS}ms; skipped`);
+            return { text: '' };
+        }
+        lastDelivered.set(conversationId, { text, at: now });
         let record;
         try {
             record = await ensureConversation(conversationId);
@@ -181,6 +225,8 @@ export function createWeixinAgent(ctx, config) {
         dispose: async () => {
             const records = [...conversations.values()];
             conversations.clear();
+            creating.clear();
+            lastDelivered.clear();
             await Promise.allSettled(records.map(record => record.handle.dispose()));
         },
     };

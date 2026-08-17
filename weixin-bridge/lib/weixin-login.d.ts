@@ -39,6 +39,29 @@ export declare function listWeixinAccountIds(): string[];
  * starts a fresh QR flow.
  */
 export declare function clearWeixinAccounts(): void;
+/**
+ * One account's monitor lock: which process owns the WeChat long-poll for the
+ * account. Because the SDK's sync cursor is a single shared file per account
+ * (`~/.openclaw/openclaw-weixin/accounts/<id>.sync.json`), running the
+ * harness twice (e.g. a relaunched desktop app whose old sidecar survived)
+ * makes every instance poll the SAME account with the SAME cursor — each
+ * inbound message is then delivered to every instance and the user gets one
+ * reply per instance. The lock keeps exactly one monitor per account.
+ */
+export interface MonitorLockState {
+    pid: number;
+    startedAt: number;
+}
+/**
+ * Claim the account's monitor lock for this process.
+ * @param accountId - the SDK account id being monitored.
+ * @returns the live pid of another process that already owns the lock, or
+ *   `undefined` when this process may start the monitor (it either acquired
+ *   the lock or a lock failure fell back to running).
+ */
+export declare function acquireMonitorLock(accountId: string): number | undefined;
+/** Release the account's monitor lock when this process owns it. */
+export declare function releaseMonitorLock(accountId: string): void;
 /** Options accepted by {@link WeixinLoginManager}. */
 export interface WeixinLoginManagerOptions {
     /** Invoked after a confirmed login (or an existing one) is persisted/ready. */
