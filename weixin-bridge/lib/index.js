@@ -97,7 +97,12 @@ export function apply(ctx, config = {}) {
         runtimeConfig.maxTokens = value.maxTokens;
     };
     const bridge = createWeixinAgent(ctx, runtimeConfig);
-    const abort = new AbortController();
+    let abort = new AbortController();
+    /** Stop the running monitor and discard its abort signal (used by logout). */
+    const stopMonitor = () => {
+        abort.abort();
+        abort = new AbortController();
+    };
     /** Start the SDK monitor once a login is confirmed (or already exists). */
     const startMonitor = () => {
         try {
@@ -112,7 +117,10 @@ export function apply(ctx, config = {}) {
             ctx.logger.warn(`[weixin-bridge] failed to start the WeChat monitor: ${error instanceof Error ? error.message : String(error)}`);
         }
     };
-    const manager = new WeixinLoginManager({ onConnected: startMonitor });
+    const manager = new WeixinLoginManager({
+        onConnected: startMonitor,
+        onDisconnected: stopMonitor,
+    });
     ctx.effect(() => {
         if (isLoggedIn()) {
             // An earlier login is already persisted; skip the QR flow entirely.
@@ -150,6 +158,10 @@ export function apply(ctx, config = {}) {
                     case 'stop-login':
                         manager.stop();
                         return { ok: true, value: manager.status() };
+                    case 'logout':
+                        // Clear every persisted credential, stop the running monitor, and
+                        // return to idle so the next login binds a different account.
+                        return { ok: true, value: await manager.logout() };
                     case 'get-config':
                         return { ok: true, value: scope.get() };
                     case 'set-config': {

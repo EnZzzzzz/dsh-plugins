@@ -2713,6 +2713,22 @@ window.__ModuleLoader__.load({
 					setBusy(false);
 				}
 			}, [connection]);
+			/** Log out and clear credentials so a different WeChat account can be bound. */
+			const logout = (0, react.useCallback)(async () => {
+				if (!window.confirm("退出登录将清除当前微信的登录凭证，之后需要重新扫码绑定另一个账号。确定退出吗？")) return;
+				setBusy(true);
+				try {
+					const result = await connection.rpc.call("/weixin-bridge", "logout", {});
+					if (result.ok) {
+						setStatus(result.value);
+						setCallError(void 0);
+					} else setCallError(result.error.message);
+				} catch (error) {
+					setCallError(error instanceof Error ? error.message : String(error));
+				} finally {
+					setBusy(false);
+				}
+			}, [connection]);
 			/** Open the Host's native OS folder chooser and fill the cwd field. */
 			const pickCwd = (0, react.useCallback)(async () => {
 				setBusy(true);
@@ -2875,6 +2891,13 @@ window.__ModuleLoader__.load({
 											},
 											disabled: busy,
 											children: "取消登录"
+										}),
+										phase === "connected" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ActionButton, {
+											onClick: () => {
+												logout();
+											},
+											disabled: busy,
+											children: "退出并重新绑定"
 										})
 									]
 								}),

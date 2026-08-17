@@ -79,7 +79,7 @@ dsh --profile weixin
 - **非交互渠道**：微信会话组合默认 agent preset（同 web 会话），但隐藏需要 UI 回答的 `ask_user_question` 工具；单轮处理超过 5 分钟（`turnTimeoutMs` 可调）会取消该轮并提示重发，避免交互卡死把整个通道挂起。
 - **依赖**：需要 profile 组合里有 agent 工厂与 agent-presets（`@deepseek-ai/dsh-base` + `dsh-web-app` 自带）。若目标 profile 没有 agent 服务，桥接会因注入失败而无法激活。
 - **页面扫码**：需要 profile 组合里有 `client-connection`（web profile 自带）。其他 profile 退回终端扫码；已登录过（`~/.openclaw/openclaw-weixin` 有账号）时跳过扫码直接连接。
-- **重新登录**：暂不支持在页面里退出/换号；如需换号，删除 `~/.openclaw/openclaw-weixin` 后重启 profile。
+- **退出/换号**：设置页在已连接状态显示「退出并重新绑定」——清除 `~/.openclaw/openclaw-weixin` 下的全部凭证并停掉微信监听，回到未连接状态后可重新扫码绑定另一个微信号。与手动删除目录不同，退出后无需重启 profile。
 
 ## 开发
 

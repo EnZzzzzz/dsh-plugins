@@ -134,7 +134,13 @@ export function apply(ctx: Context, config: Config = {}): void {
   }
 
   const bridge = createWeixinAgent(ctx, runtimeConfig)
-  const abort = new AbortController()
+  let abort = new AbortController()
+
+  /** Stop the running monitor and discard its abort signal (used by logout). */
+  const stopMonitor = (): void => {
+    abort.abort()
+    abort = new AbortController()
+  }
 
   /** Start the SDK monitor once a login is confirmed (or already exists). */
   const startMonitor = (): void => {
@@ -150,7 +156,10 @@ export function apply(ctx: Context, config: Config = {}): void {
     }
   }
 
-  const manager = new WeixinLoginManager({ onConnected: startMonitor })
+  const manager = new WeixinLoginManager({
+    onConnected: startMonitor,
+    onDisconnected: stopMonitor,
+  })
 
   ctx.effect(() => {
     if (isLoggedIn()) {
@@ -197,6 +206,10 @@ export function apply(ctx: Context, config: Config = {}): void {
           case 'stop-login':
             manager.stop()
             return { ok: true, value: manager.status() }
+          case 'logout':
+            // Clear every persisted credential, stop the running monitor, and
+            // return to idle so the next login binds a different account.
+            return { ok: true, value: await manager.logout() }
           case 'get-config':
             return { ok: true, value: scope.get() }
           case 'set-config': {

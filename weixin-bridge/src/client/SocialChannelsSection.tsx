@@ -224,6 +224,27 @@ export function SocialChannelsSection(props: SocialChannelsSectionProps): ReactN
     }
   }, [connection])
 
+  /** Log out and clear credentials so a different WeChat account can be bound. */
+  const logout = useCallback(async (): Promise<void> => {
+    if (!window.confirm('退出登录将清除当前微信的登录凭证，之后需要重新扫码绑定另一个账号。确定退出吗？')) {
+      return
+    }
+    setBusy(true)
+    try {
+      const result = await connection.rpc.call('/weixin-bridge', 'logout', {})
+      if (result.ok) {
+        setStatus(result.value as LoginStatus)
+        setCallError(undefined)
+      } else {
+        setCallError(result.error.message)
+      }
+    } catch (error) {
+      setCallError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusy(false)
+    }
+  }, [connection])
+
   /** Open the Host's native OS folder chooser and fill the cwd field. */
   const pickCwd = useCallback(async (): Promise<void> => {
     setBusy(true)
@@ -350,6 +371,11 @@ export function SocialChannelsSection(props: SocialChannelsSectionProps): ReactN
             {phase === 'waiting' && (
               <ActionButton onClick={() => { void cancelLogin() }} disabled={busy}>
                 取消登录
+              </ActionButton>
+            )}
+            {phase === 'connected' && (
+              <ActionButton onClick={() => { void logout() }} disabled={busy}>
+                退出并重新绑定
               </ActionButton>
             )}
           </div>

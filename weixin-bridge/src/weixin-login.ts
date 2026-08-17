@@ -13,7 +13,7 @@
  * @module dsh-weixin-bridge/weixin-login
  */
 
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
 
@@ -116,10 +116,35 @@ function persistAccount(
   writeFileSync(path.join(weixinDir, 'accounts.json'), JSON.stringify([accountId], null, 2), 'utf-8')
 }
 
+/**
+ * Remove every persisted WeChat account credential, mirroring the SDK's
+ * `clearAllWeixinAccounts`: delete each indexed account file and reset the
+ * index to empty. After this, `isLoggedIn()` reports false and the next login
+ * starts a fresh QR flow.
+ */
+export function clearWeixinAccounts(): void {
+  const weixinDir = path.join(resolveStateDir(), 'openclaw-weixin')
+  const accountsDir = path.join(weixinDir, 'accounts')
+  for (const accountId of listWeixinAccountIds()) {
+    try {
+      rmSync(path.join(accountsDir, `${accountId}.json`), { force: true })
+    } catch {
+      // Best effort; the index reset below still leaves a consistent state.
+    }
+  }
+  try {
+    writeFileSync(path.join(weixinDir, 'accounts.json'), '[]', 'utf-8')
+  } catch {
+    // Best effort: a missing index is treated as "no accounts" everywhere.
+  }
+}
+
 /** Options accepted by {@link WeixinLoginManager}. */
 export interface WeixinLoginManagerOptions {
   /** Invoked after a confirmed login (or an existing one) is persisted/ready. */
   onConnected?: (accountId: string) => void | Promise<void>
+  /** Invoked after {@link WeixinLoginManager.logout} clears the credentials. */
+  onDisconnected?: () => void | Promise<void>
 }
 
 /**
@@ -138,9 +163,11 @@ export class WeixinLoginManager {
   /** Monotonic generation: a stale async flow never writes status. */
   private generation = 0
   private readonly onConnected?: (accountId: string) => void | Promise<void>
+  private readonly onDisconnected?: () => void | Promise<void>
 
   constructor(options: WeixinLoginManagerOptions = {}) {
     this.onConnected = options.onConnected
+    this.onDisconnected = options.onDisconnected
   }
 
   /** A JSON-safe snapshot of the current login state. */
@@ -198,6 +225,25 @@ export class WeixinLoginManager {
     this.scanned = false
     this.message = '已连接微信'
     this.qrUrl = undefined
+  }
+
+  /**
+   * Log out: cancel any in-flight flow, clear every persisted credential, and
+   * return to the idle state so a fresh QR login can bind another account.
+   * Fires `onDisconnected` so the host can stop the running monitor.
+   */
+  async logout(): Promise<WeixinLoginStatus> {
+    this.abort?.abort()
+    this.abort = undefined
+    this.generation += 1
+    clearWeixinAccounts()
+    this.phase = 'idle'
+    this.qrUrl = undefined
+    this.scanned = false
+    this.accountId = undefined
+    this.message = '已退出登录，可重新扫码绑定'
+    await this.onDisconnected?.()
+    return this.status()
   }
 
   /** The QR-code background flow; owns all status writes for one generation. */

@@ -32,10 +32,19 @@ export type StartLoginResult = WeixinLoginStatus;
 export declare function normalizeAccountId(raw: string): string;
 /** Account ids registered by previous QR logins (the SDK's account index). */
 export declare function listWeixinAccountIds(): string[];
+/**
+ * Remove every persisted WeChat account credential, mirroring the SDK's
+ * `clearAllWeixinAccounts`: delete each indexed account file and reset the
+ * index to empty. After this, `isLoggedIn()` reports false and the next login
+ * starts a fresh QR flow.
+ */
+export declare function clearWeixinAccounts(): void;
 /** Options accepted by {@link WeixinLoginManager}. */
 export interface WeixinLoginManagerOptions {
     /** Invoked after a confirmed login (or an existing one) is persisted/ready. */
     onConnected?: (accountId: string) => void | Promise<void>;
+    /** Invoked after {@link WeixinLoginManager.logout} clears the credentials. */
+    onDisconnected?: () => void | Promise<void>;
 }
 /**
  * Drives the QR-code login flow and keeps a JSON-safe status snapshot that the
@@ -53,6 +62,7 @@ export declare class WeixinLoginManager {
     /** Monotonic generation: a stale async flow never writes status. */
     private generation;
     private readonly onConnected?;
+    private readonly onDisconnected?;
     constructor(options?: WeixinLoginManagerOptions);
     /** A JSON-safe snapshot of the current login state. */
     status(): WeixinLoginStatus;
@@ -66,6 +76,12 @@ export declare class WeixinLoginManager {
     stop(): void;
     /** Mark the bridge connected with an already-persisted account. */
     markConnected(accountId?: string): void;
+    /**
+     * Log out: cancel any in-flight flow, clear every persisted credential, and
+     * return to the idle state so a fresh QR login can bind another account.
+     * Fires `onDisconnected` so the host can stop the running monitor.
+     */
+    logout(): Promise<WeixinLoginStatus>;
     /** The QR-code background flow; owns all status writes for one generation. */
     private runFlow;
     /** Record a terminal failure for the current generation only. */
