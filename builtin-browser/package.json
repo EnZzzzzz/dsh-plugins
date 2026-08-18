@@ -19,15 +19,16 @@
     "lib",
     "cordis.patch.yml",
     "desktop",
-    "README.md"
+    "README.md",
+    "vendor"
   ],
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && tsdown",
+    "build": "tsc -p tsconfig.json && npm run build:client",
     "build:host": "tsc -p tsconfig.json",
-    "build:client": "tsdown",
+    "build:client": "node vendor/selector/build.mjs && tsdown",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json"
   },
   "peerDependencies": {

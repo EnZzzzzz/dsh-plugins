@@ -18,6 +18,10 @@ export interface BrowserPanelState {
   current: string
   /** Whether the panel is running inside an Electron shell (webview available). */
   inShell: boolean
+  /** Whether element picking (the vendored Selector editor) is active. */
+  picking: boolean
+  /** Transient error toast shown under the toolbar; auto-clears. */
+  toast: string | null
 }
 
 const DEFAULT_ADDRESS = 'https://example.com'
@@ -45,12 +49,22 @@ let state: BrowserPanelState = {
   address: DEFAULT_ADDRESS,
   current: '',
   inShell: false,
+  picking: false,
+  toast: null,
 }
+
+let toastTimer: ReturnType<typeof setTimeout> | undefined
 
 const listeners = new Set<Listener>()
 
 function emit(): void {
   listeners.forEach((l) => l())
+}
+
+function dismissToast(): void {
+  if (state.toast === null) return
+  state = { ...state, toast: null }
+  emit()
 }
 
 export const browserStore = {
@@ -84,6 +98,23 @@ export const browserStore = {
     if (state.inShell === inShell) return
     state = { ...state, inShell }
     emit()
+  },
+  setPicking(picking: boolean): void {
+    if (state.picking === picking) return
+    state = { ...state, picking }
+    emit()
+  },
+  /** Show a transient toast under the toolbar; auto-clears after 4 s. */
+  showToast(toast: string): void {
+    if (toastTimer !== undefined) clearTimeout(toastTimer)
+    toastTimer = setTimeout(dismissToast, 4000)
+    if (state.toast === toast) return
+    state = { ...state, toast }
+    emit()
+  },
+  clearToast(): void {
+    if (toastTimer !== undefined) clearTimeout(toastTimer)
+    dismissToast()
   },
   /** Bind the page-surface element the controller drives. */
   setSurface(el: PageSurfaceElement | null): void {

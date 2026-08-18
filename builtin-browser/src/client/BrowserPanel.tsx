@@ -21,6 +21,7 @@
 
 import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import { stopPicking, togglePicking } from './pick-flow.js'
 import { browserStore } from './store.js'
 
 /**
@@ -130,7 +131,13 @@ export function BrowserPanel(_props: BrowserPanelProps): ReactNode {
   useEffect(() => {
     const wv = browserStore.getSurface()
     if (!wv || !inShell) return
-    const onDidNavigate = (): void => refreshNavState()
+    const onDidNavigate = (): void => {
+      refreshNavState()
+      // A real navigation replaced the guest document, so the injected editor is
+      // gone. Exit picking silently (matches §4.4: address-bar nav while picking).
+      void stopPicking()
+    }
+    const onDidNavigateInPage = (): void => refreshNavState()
     const onDidFinishLoad = (): void => {
       setLoading(false)
       refreshNavState()
@@ -138,13 +145,13 @@ export function BrowserPanel(_props: BrowserPanelProps): ReactNode {
     const onDidStartLoading = (): void => setLoading(true)
     const onDidStopLoading = (): void => setLoading(false)
     wv.addEventListener('did-navigate', onDidNavigate)
-    wv.addEventListener('did-navigate-in-page', onDidNavigate)
+    wv.addEventListener('did-navigate-in-page', onDidNavigateInPage)
     wv.addEventListener('did-finish-load', onDidFinishLoad)
     wv.addEventListener('did-start-loading', onDidStartLoading)
     wv.addEventListener('did-stop-loading', onDidStopLoading)
     return () => {
       wv.removeEventListener('did-navigate', onDidNavigate)
-      wv.removeEventListener('did-navigate-in-page', onDidNavigate)
+      wv.removeEventListener('did-navigate-in-page', onDidNavigateInPage)
       wv.removeEventListener('did-finish-load', onDidFinishLoad)
       wv.removeEventListener('did-start-loading', onDidStartLoading)
       wv.removeEventListener('did-stop-loading', onDidStopLoading)
@@ -240,6 +247,22 @@ export function BrowserPanel(_props: BrowserPanelProps): ReactNode {
         >
           ⟳
         </button>
+        {state.inShell && (
+          <button
+            type="button"
+            style={{
+              ...buttonStyle,
+              background: state.picking ? 'rgba(59, 130, 246, 0.28)' : undefined,
+              opacity: 1,
+            }}
+            onClick={() => togglePicking()}
+            title="拾取元素发给助手"
+            aria-label="拾取元素发给助手"
+            aria-pressed={state.picking}
+          >
+            ⌖
+          </button>
+        )}
         {loading && (
           <button
             type="button"
@@ -280,6 +303,20 @@ export function BrowserPanel(_props: BrowserPanelProps): ReactNode {
           ✕
         </button>
       </div>
+      {state.toast && (
+        <div
+          role="alert"
+          style={{
+            padding: '8px 12px',
+            background: 'rgba(220, 38, 38, 0.14)',
+            color: '#dc2626',
+            borderBottom: '1px solid rgba(220, 38, 38, 0.3)',
+            fontSize: 13,
+          }}
+        >
+          {state.toast}
+        </div>
+      )}
       {inShell ? (
         // Real Chromium guest inside the Desktop shell.
         <webview
