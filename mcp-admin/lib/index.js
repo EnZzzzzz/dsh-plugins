@@ -71,16 +71,20 @@ export function apply(ctx, config) {
         await transport.handleRequest(req, res, body);
     };
     ctx.effect(() => ctx.webServer.register({ kind: 'prefix', path: '/mcp', handler }), 'mcp-admin: /mcp route');
-    // The Settings dashboard reads the audit trail over this channel. Deferred
-    // inject: compositions without the connection service (non-web profiles)
-    // simply skip the dashboard channel. 'trusted-host' authority — remote
-    // browsers on declared trusted hosts may read; the audit trail carries no
-    // secrets.
+    // The Settings dashboard reads the audit trail and the setup payload over
+    // this channel. Deferred inject: compositions without the connection service
+    // (non-web profiles) simply skip the dashboard channel. 'trusted-host'
+    // authority — remote browsers on declared trusted hosts may read. The
+    // `setup-info` endpoint returns the bearer token: anyone who can open the
+    // Web UI can already drive agents through `/api`, so handing the token to
+    // the same audience adds no new exposure.
     ctx.inject(['connection'], (apiCtx) => {
         apiCtx.connection.rpc.handle('/mcp-admin', async (endpoint, _payload, _signal) => {
             switch (endpoint) {
                 case 'audit.list':
                     return { ok: true, value: listAudit(auditLimit) };
+                case 'setup-info':
+                    return { ok: true, value: { token } };
                 default:
                     return {
                         ok: false,

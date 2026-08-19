@@ -33,10 +33,52 @@ interface AuditRecord {
 /** Poll cadence while the page is mounted (the audit read is cheap). */
 const POLL_INTERVAL_MS = 5_000
 
+/**
+ * Build the paste-ready MCP setup brief for another agent. The URL mirrors
+ * the address this page was opened with (public IP, LAN IP, or loopback), so
+ * the pasted config reaches the server the same way the user just did.
+ */
+function buildSetupBrief(origin: string, token: string): string {
+  const url = `${origin}/mcp`
+  return `# 配置远程 DeepSeek Harness 管理端点（dsh-mcp-admin）
+
+把下面这个 MCP server 加进你的客户端配置（Streamable HTTP 类型），然后重启或重连 MCP：
+
+\`\`\`json
+{
+  "mcpServers": {
+    "dsh-admin": {
+      "type": "http",
+      "url": "${url}",
+      "headers": { "Authorization": "Bearer ${token}" }
+    }
+  }
+}
+\`\`\`
+
+如果你的客户端用别的配置格式，要素只有两个：
+- URL：${url}
+- 请求头：Authorization: Bearer ${token}
+
+## 配置成功后你可以做什么
+
+这是远程服务器上 DeepSeek Harness 的管理端点，提供 8 个工具：
+
+- \`skill_list\` / \`skill_read\` / \`skill_upsert\` / \`skill_delete\` — 管理 skill（user root：~/.dsh/skills，写完即时热生效）
+- \`preset_list\` / \`preset_read\` / \`preset_upsert\` / \`preset_delete\` — 管理 Agent 预设（改动对新建 session 生效；覆盖内置 preset 时先传 base 参数复制再改）
+
+典型流程：用 skill_read / preset_read 评审当前配置 → 修改后 upsert → 开新 session 验证效果。
+`
+}
+
 /** The settings page component; only exported for the plugin entry. */
 export function McpAdminSection({ connection }: McpAdminSectionProps): ReactNode {
   const [records, setRecords] = useState<AuditRecord[]>([])
   const [error, setError] = useState<string>()
+  const [copied, setCopied] = useState(false)
+  /** Setup brief rendered for manual copy when the clipboard API is unavailable (http:// pages). */
+  const [manualCopy, setManualCopy] = useState<string>()
+  const [setupError, setSetupError] = useState<string>()
 
   const refresh = useCallback(async (): Promise<void> => {
     try {
@@ -58,12 +100,80 @@ export function McpAdminSection({ connection }: McpAdminSectionProps): ReactNode
     return () => clearInterval(timer)
   }, [refresh])
 
+  const copySetup = useCallback(async (): Promise<void> => {
+    setCopied(false)
+    setManualCopy(undefined)
+    setSetupError(undefined)
+    try {
+      const result = await connection.rpc.call('/mcp-admin', 'setup-info', {})
+      if (!result.ok) {
+        setSetupError(result.error.message)
+        return
+      }
+      const brief = buildSetupBrief(window.location.origin, (result.value as { token: string }).token)
+      try {
+        // Clipboard API requires a secure context; http://<ip> pages fall back
+        // to rendering the brief for manual selection.
+        await navigator.clipboard.writeText(brief)
+        setCopied(true)
+      } catch {
+        setManualCopy(brief)
+      }
+    } catch (cause) {
+      setSetupError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }, [connection])
+
   return (
     <div style={{ padding: '0 4px' }}>
       <h2 style={{ margin: '0 0 12px' }}>MCP 管理</h2>
       <p style={{ margin: '0 0 12px', color: 'var(--dsw-text-secondary, #888)' }}>
         通过 MCP 端点对 skill 与 Agent 预设的远程修改记录（最新在前，每 5 秒刷新）。
       </p>
+      <div style={{ margin: '0 0 16px' }}>
+        <button
+          onClick={() => void copySetup()}
+          style={{
+            padding: '6px 14px',
+            borderRadius: '6px',
+            border: '1px solid var(--dsw-border, #ddd)',
+            background: 'var(--dsw-accent-soft, #e8f0fe)',
+            cursor: 'pointer',
+          }}
+        >
+          复制 MCP 配置说明
+        </button>
+        {copied && (
+          <span style={{ marginLeft: '10px', color: 'var(--dsw-success, #18794e)' }}>
+            已复制，直接粘贴给要配置的 Agent 即可
+          </span>
+        )}
+        {setupError !== undefined && (
+          <span style={{ marginLeft: '10px', color: 'var(--dsw-error, #c00)' }}>{setupError}</span>
+        )}
+      </div>
+      {manualCopy !== undefined && (
+        <div style={{ margin: '0 0 16px' }}>
+          <p style={{ margin: '0 0 6px', color: 'var(--dsw-text-secondary, #888)' }}>
+            当前页面不是安全上下文（http），浏览器禁止自动复制。请全选下面文本手动复制：
+          </p>
+          <textarea
+            readOnly
+            value={manualCopy}
+            onFocus={(event) => event.target.select()}
+            style={{
+              width: '100%',
+              height: '260px',
+              boxSizing: 'border-box',
+              fontSize: '12px',
+              fontFamily: 'monospace',
+              padding: '8px',
+              borderRadius: '6px',
+              border: '1px solid var(--dsw-border, #ddd)',
+            }}
+          />
+        </div>
+      )}
       {error !== undefined && (
         <p style={{ color: 'var(--dsw-error, #c00)' }}>读取失败：{error}</p>
       )}

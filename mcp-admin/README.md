@@ -46,9 +46,11 @@ dsh plugin --profile web add /path/to/dsh-plugins/mcp-admin
 | `token` | string | （必填） | `/mcp` 端点的 bearer token，是唯一防线，务必长且随机 |
 | `auditLimit` | number | 200 | 审计日志保留条数 |
 
-## MCP client 配置示例
+## MCP client 配置
 
-本地 Agent 的 MCP 配置（Streamable HTTP 类型）：
+**最简单的方式**：打开 Settings 的「MCP 管理」页，点「复制 MCP 配置说明」——会复制一份完整的配置说明（含 URL 和 token），直接粘贴给要配置的 Agent，它照着说明自己配即可。URL 自动使用你当前打开 Web UI 的地址（公网 IP、局域网 IP 或 loopback），与你访问页面的路径保持一致。注意 `http://` 页面下浏览器禁止自动复制，按钮会降级为展示文本框手动复制。
+
+手动配置的格式（Streamable HTTP 类型）：
 
 ```json
 {
@@ -81,6 +83,7 @@ dsh plugin --profile web add /path/to/dsh-plugins/mcp-admin
 - 建议只在反代终结 TLS 后暴露，或配合 harness 的 `trusted-host` 机制限制来源。
 - 所有写操作限定在 user root（`~/.dsh/skills`、`~/.dsh/.agent-presets`），不触碰内置 preset 与项目目录。
 - 看板 RPC 通道（`/mcp-admin`）走 connection 的 `trusted-host` 围栏；审计记录不含 secret。
+- 「复制 MCP 配置说明」按钮通过 `setup-info` endpoint 把 token 回传给页面：**任何能打开 Web UI 的人都能拿到 token**。这与 harness 现有安全模型一致（能打开 Web UI 已经能通过 `session.prompt` 在服务器上跑 agent），但意味着 Web UI 的暴露面 = token 的暴露面。
 
 ## 开发
 
