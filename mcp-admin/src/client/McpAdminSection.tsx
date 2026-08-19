@@ -80,6 +80,9 @@ export function McpAdminSection({ connection }: McpAdminSectionProps): ReactNode
   /** Setup brief rendered for manual copy when the clipboard API is unavailable (http:// pages). */
   const [manualCopy, setManualCopy] = useState<string>()
   const [setupError, setSetupError] = useState<string>()
+  /** Editable publicUrl draft (loaded from / saved to the settings namespace). */
+  const [publicUrlInput, setPublicUrlInput] = useState('')
+  const [configMessage, setConfigMessage] = useState<string>()
 
   const refresh = useCallback(async (): Promise<void> => {
     try {
@@ -95,11 +98,38 @@ export function McpAdminSection({ connection }: McpAdminSectionProps): ReactNode
     }
   }, [connection])
 
+  const refreshConfig = useCallback(async (): Promise<void> => {
+    try {
+      const result = await connection.rpc.call('/mcp-admin', 'get-config', {})
+      if (result.ok) setPublicUrlInput((result.value as { publicUrl: string }).publicUrl)
+    } catch {
+      // Config form stays empty; the next successful poll fills it.
+    }
+  }, [connection])
+
   useEffect(() => {
     void refresh()
+    void refreshConfig()
     const timer = setInterval(() => void refresh(), POLL_INTERVAL_MS)
     return () => clearInterval(timer)
-  }, [refresh])
+  }, [refresh, refreshConfig])
+
+  const saveConfig = useCallback(async (): Promise<void> => {
+    setConfigMessage(undefined)
+    try {
+      const result = await connection.rpc.call('/mcp-admin', 'set-config', {
+        patch: { publicUrl: publicUrlInput.trim() },
+      })
+      if (result.ok) {
+        setPublicUrlInput((result.value as { publicUrl: string }).publicUrl)
+        setConfigMessage('已保存')
+      } else {
+        setConfigMessage(result.error.message)
+      }
+    } catch (cause) {
+      setConfigMessage(cause instanceof Error ? cause.message : String(cause))
+    }
+  }, [connection, publicUrlInput])
 
   const copySetup = useCallback(async (): Promise<void> => {
     setCopied(false)
@@ -137,6 +167,39 @@ export function McpAdminSection({ connection }: McpAdminSectionProps): ReactNode
         通过 MCP 端点对 skill 与 Agent 预设的远程修改记录（最新在前，每 5 秒刷新）。
       </p>
       <div style={{ margin: '0 0 16px' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap' }}>
+          <label style={{ color: 'var(--dsw-text-secondary, #888)', flexShrink: 0 }}>
+            公网访问地址
+          </label>
+          <input
+            value={publicUrlInput}
+            onChange={(event) => setPublicUrlInput(event.target.value)}
+            placeholder="http://1.2.3.4:3080（留空则跟随你打开本页的地址）"
+            style={{
+              flex: 1,
+              minWidth: '280px',
+              padding: '5px 8px',
+              borderRadius: '6px',
+              border: '1px solid var(--dsw-border, #ddd)',
+              fontFamily: 'monospace',
+              fontSize: '12px',
+            }}
+          />
+          <button
+            onClick={() => void saveConfig()}
+            style={{
+              padding: '6px 14px',
+              borderRadius: '6px',
+              border: '1px solid var(--dsw-border, #ddd)',
+              cursor: 'pointer',
+            }}
+          >
+            保存
+          </button>
+          {configMessage !== undefined && (
+            <span style={{ color: 'var(--dsw-text-secondary, #888)', fontSize: '12px' }}>{configMessage}</span>
+          )}
+        </div>
         <button
           onClick={() => void copySetup()}
           style={{

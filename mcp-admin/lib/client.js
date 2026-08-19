@@ -64,6 +64,9 @@ window.__ModuleLoader__.load({
 			/** Setup brief rendered for manual copy when the clipboard API is unavailable (http:// pages). */
 			const [manualCopy, setManualCopy] = (0, react.useState)();
 			const [setupError, setSetupError] = (0, react.useState)();
+			/** Editable publicUrl draft (loaded from / saved to the settings namespace). */
+			const [publicUrlInput, setPublicUrlInput] = (0, react.useState)("");
+			const [configMessage, setConfigMessage] = (0, react.useState)();
 			const refresh = (0, react.useCallback)(async () => {
 				try {
 					const result = await connection.rpc.call("/mcp-admin", "audit.list", {});
@@ -75,11 +78,30 @@ window.__ModuleLoader__.load({
 					setError(cause instanceof Error ? cause.message : String(cause));
 				}
 			}, [connection]);
+			const refreshConfig = (0, react.useCallback)(async () => {
+				try {
+					const result = await connection.rpc.call("/mcp-admin", "get-config", {});
+					if (result.ok) setPublicUrlInput(result.value.publicUrl);
+				} catch {}
+			}, [connection]);
 			(0, react.useEffect)(() => {
 				refresh();
+				refreshConfig();
 				const timer = setInterval(() => void refresh(), POLL_INTERVAL_MS);
 				return () => clearInterval(timer);
-			}, [refresh]);
+			}, [refresh, refreshConfig]);
+			const saveConfig = (0, react.useCallback)(async () => {
+				setConfigMessage(void 0);
+				try {
+					const result = await connection.rpc.call("/mcp-admin", "set-config", { patch: { publicUrl: publicUrlInput.trim() } });
+					if (result.ok) {
+						setPublicUrlInput(result.value.publicUrl);
+						setConfigMessage("已保存");
+					} else setConfigMessage(result.error.message);
+				} catch (cause) {
+					setConfigMessage(cause instanceof Error ? cause.message : String(cause));
+				}
+			}, [connection, publicUrlInput]);
 			const copySetup = (0, react.useCallback)(async () => {
 				setCopied(false);
 				setManualCopy(void 0);
@@ -119,6 +141,55 @@ window.__ModuleLoader__.load({
 					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 						style: { margin: "0 0 16px" },
 						children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								style: {
+									display: "flex",
+									gap: "8px",
+									alignItems: "center",
+									marginBottom: "10px",
+									flexWrap: "wrap"
+								},
+								children: [
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("label", {
+										style: {
+											color: "var(--dsw-text-secondary, #888)",
+											flexShrink: 0
+										},
+										children: "公网访问地址"
+									}),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+										value: publicUrlInput,
+										onChange: (event) => setPublicUrlInput(event.target.value),
+										placeholder: "http://1.2.3.4:3080（留空则跟随你打开本页的地址）",
+										style: {
+											flex: 1,
+											minWidth: "280px",
+											padding: "5px 8px",
+											borderRadius: "6px",
+											border: "1px solid var(--dsw-border, #ddd)",
+											fontFamily: "monospace",
+											fontSize: "12px"
+										}
+									}),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+										onClick: () => void saveConfig(),
+										style: {
+											padding: "6px 14px",
+											borderRadius: "6px",
+											border: "1px solid var(--dsw-border, #ddd)",
+											cursor: "pointer"
+										},
+										children: "保存"
+									}),
+									configMessage !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										style: {
+											color: "var(--dsw-text-secondary, #888)",
+											fontSize: "12px"
+										},
+										children: configMessage
+									})
+								]
+							}),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 								onClick: () => void copySetup(),
 								style: {

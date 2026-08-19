@@ -17,6 +17,7 @@
     "sourceMap": false,
     "paths": {
       "@deepseek-ai/cordis": ["/Volumes/DataDrive/proj/public/deepseek-harness/vendor/cordis/lib/types/index.d.ts"],
+      "@deepseek-ai/dsh-settings": ["/Volumes/DataDrive/proj/public/deepseek-harness/packages/settings/settings/lib/types/index.d.ts"],
       "@deepseek-ai/dsh-agent-presets": ["/Volumes/DataDrive/proj/public/deepseek-harness/packages/preset/agent-presets/lib/types/index.d.ts"],
       "@deepseek-ai/dsh-home-paths": ["/Volumes/DataDrive/proj/public/deepseek-harness/packages/util/home-paths/lib/types/index.d.ts"],
       "@deepseek-ai/dsh-host-webserver": ["/Volumes/DataDrive/proj/public/deepseek-harness/packages/host/webserver/lib/types/index.d.ts"],
