@@ -9,6 +9,7 @@ DSH 的插件体系基于 Cordis：一个插件是一个 dsh bundle（`package.j
 | 路径 | 说明 |
 |---|---|
 | [`weixin-bridge/`](weixin-bridge/) | 把 Harness agent 接到微信 ClawBot 通道的双面插件（host 半区 + Settings 页面），是本仓库最完整的插件示例，含安装、配置、开发说明 |
+| [`mcp-admin/`](mcp-admin/) | 把 skill / Agent 预设管理暴露为 MCP server 的双面插件（bearer token 认证的 `/mcp` 端点 + Settings「MCP 管理」修改记录看板），支持远程 Agent 免 SSH 修改配置 |
 | `clash-verge-nodes.yaml` | 其他用途的配置备份，与插件无关 |
 
 ## DeepSeek Harness 官方仓库
