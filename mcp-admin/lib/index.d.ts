@@ -31,6 +31,13 @@ export interface Config {
     token?: string;
     /** Audit log retention in records (oldest dropped first). Default 200. */
     auditLimit?: number;
+    /**
+     * Public base URL of this deployment (e.g. `http://1.2.3.4:3080`), used in
+     * the setup brief instead of the address the Settings page was opened with.
+     * Set it when the Web UI is reached through a path agents cannot use (SSH
+     * tunnel, loopback) — a NAT host cannot discover its own public IP.
+     */
+    publicUrl?: string;
 }
 /**
  * Mount the MCP endpoint and the dashboard RPC channel.

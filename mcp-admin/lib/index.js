@@ -48,6 +48,8 @@ export function apply(ctx, config) {
         throw new Error('mcp-admin: config.token is empty. Set a long random bearer token in the profile cordis.patch.yml — it is the only guard on /mcp.');
     }
     const auditLimit = config.auditLimit ?? 200;
+    // Normalize: strip a trailing slash; empty string means "not configured".
+    const publicUrl = config.publicUrl?.replace(/\/+$/, '') || undefined;
     const handler = async (req, res) => {
         if (req.headers.authorization !== `Bearer ${token}`) {
             res.writeHead(401, { 'content-type': 'application/json' });
@@ -84,7 +86,7 @@ export function apply(ctx, config) {
                 case 'audit.list':
                     return { ok: true, value: listAudit(auditLimit) };
                 case 'setup-info':
-                    return { ok: true, value: { token } };
+                    return { ok: true, value: { token, publicUrl: publicUrl ?? null } };
                 default:
                     return {
                         ok: false,

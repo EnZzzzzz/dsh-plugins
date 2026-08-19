@@ -34,12 +34,13 @@ interface AuditRecord {
 const POLL_INTERVAL_MS = 5_000
 
 /**
- * Build the paste-ready MCP setup brief for another agent. The URL mirrors
- * the address this page was opened with (public IP, LAN IP, or loopback), so
- * the pasted config reaches the server the same way the user just did.
+ * Build the paste-ready MCP setup brief for another agent. The base URL is
+ * the configured `publicUrl` when set (a NAT host cannot discover its own
+ * public IP), otherwise the address this page was opened with — the pasted
+ * config reaches the server the same way the user just did.
  */
-function buildSetupBrief(origin: string, token: string): string {
-  const url = `${origin}/mcp`
+function buildSetupBrief(baseUrl: string, token: string): string {
+  const url = `${baseUrl}/mcp`
   return `# 配置远程 DeepSeek Harness 管理端点（dsh-mcp-admin）
 
 把下面这个 MCP server 加进你的客户端配置（Streamable HTTP 类型），然后重启或重连 MCP：
@@ -107,10 +108,15 @@ export function McpAdminSection({ connection }: McpAdminSectionProps): ReactNode
     try {
       const result = await connection.rpc.call('/mcp-admin', 'setup-info', {})
       if (!result.ok) {
-        setSetupError(result.error.message)
+        setSetupError(
+          result.error.message.includes('unknown endpoint')
+            ? '服务器上的插件版本过旧：请在服务器上 git pull 并重启 dsh web'
+            : result.error.message,
+        )
         return
       }
-      const brief = buildSetupBrief(window.location.origin, (result.value as { token: string }).token)
+      const info = result.value as { token: string; publicUrl: string | null }
+      const brief = buildSetupBrief(info.publicUrl ?? window.location.origin, info.token)
       try {
         // Clipboard API requires a secure context; http://<ip> pages fall back
         // to rendering the brief for manual selection.

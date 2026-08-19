@@ -45,10 +45,11 @@ dsh plugin --profile web add /path/to/dsh-plugins/mcp-admin
 |---|---|---|---|
 | `token` | string | （必填） | `/mcp` 端点的 bearer token，是唯一防线，务必长且随机 |
 | `auditLimit` | number | 200 | 审计日志保留条数 |
+| `publicUrl` | string | 空 | 本部署的公网/局域网访问地址（如 `http://1.2.3.4:3080`）。「复制 MCP 配置说明」里的 URL 优先用它；不配则用你打开 Web UI 的地址。NAT 机器（腾讯云等）自己不知道公网 IP，走隧道打开 Web UI 时必配 |
 
 ## MCP client 配置
 
-**最简单的方式**：打开 Settings 的「MCP 管理」页，点「复制 MCP 配置说明」——会复制一份完整的配置说明（含 URL 和 token），直接粘贴给要配置的 Agent，它照着说明自己配即可。URL 自动使用你当前打开 Web UI 的地址（公网 IP、局域网 IP 或 loopback），与你访问页面的路径保持一致。注意 `http://` 页面下浏览器禁止自动复制，按钮会降级为展示文本框手动复制。
+**最简单的方式**：打开 Settings 的「MCP 管理」页，点「复制 MCP 配置说明」——会复制一份完整的配置说明（含 URL 和 token），直接粘贴给要配置的 Agent，它照着说明自己配即可。URL 优先使用配置的 `publicUrl`；未配置时用你当前打开 Web UI 的地址（公网 IP、局域网 IP 或 loopback），与你访问页面的路径保持一致。注意 `http://` 页面下浏览器禁止自动复制，按钮会降级为展示文本框手动复制。
 
 手动配置的格式（Streamable HTTP 类型）：
 

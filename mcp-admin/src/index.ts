@@ -44,6 +44,13 @@ export interface Config {
   token?: string
   /** Audit log retention in records (oldest dropped first). Default 200. */
   auditLimit?: number
+  /**
+   * Public base URL of this deployment (e.g. `http://1.2.3.4:3080`), used in
+   * the setup brief instead of the address the Settings page was opened with.
+   * Set it when the Web UI is reached through a path agents cannot use (SSH
+   * tunnel, loopback) — a NAT host cannot discover its own public IP.
+   */
+  publicUrl?: string
 }
 
 /** Read a JSON request body; non-JSON yields undefined (the transport reports it). */
@@ -71,6 +78,8 @@ export function apply(ctx: Context, config: Config): void {
     )
   }
   const auditLimit = config.auditLimit ?? 200
+  // Normalize: strip a trailing slash; empty string means "not configured".
+  const publicUrl = config.publicUrl?.replace(/\/+$/, '') || undefined
 
   const handler = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     if (req.headers.authorization !== `Bearer ${token}`) {
@@ -113,7 +122,7 @@ export function apply(ctx: Context, config: Config): void {
         case 'audit.list':
           return { ok: true, value: listAudit(auditLimit) }
         case 'setup-info':
-          return { ok: true, value: { token } }
+          return { ok: true, value: { token, publicUrl: publicUrl ?? null } }
         default:
           return {
             ok: false,
