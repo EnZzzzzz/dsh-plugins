@@ -13,3 +13,5 @@ node_modules/
 # local GCP VPN ops (kept out of the repo)
 gcp-vpn-ops.md
 gcp-vpn-startup.sh
+
+.cache/

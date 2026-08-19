@@ -1,4 +1,12 @@
-# dsh-plugins
+# dsh-plugins（已归档）
+
+> **本仓库已于 2026-08-19 拆分归档。** 3 个插件已迁移到各自的独立仓库，后续开发请前往对应仓库：
+>
+> - [`dsh-weixin-bridge`](https://github.com/EnZzzzzz/dsh-weixin-bridge) —— 把 Harness agent 接到微信 ClawBot 通道的双面插件（host 半区 + Settings 页面）
+> - [`dsh-mcp-admin`](https://github.com/EnZzzzzz/dsh-mcp-admin) —— 把 skill / Agent 预设管理暴露为 MCP server 的双面插件（bearer token 认证的 `/mcp` 端点 + Settings「MCP 管理」修改记录看板）
+> - [`dsh-builtin-browser`](https://github.com/EnZzzzzz/dsh-builtin-browser) —— 内置浏览器插件
+>
+> 本仓库保留 `docs/` 下的设计文档与拆分前的完整 git 历史，仅供查阅。
 
 个人维护的 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）插件集合。
 
@@ -8,8 +16,7 @@ DSH 的插件体系基于 Cordis：一个插件是一个 dsh bundle（`package.j
 
 | 路径 | 说明 |
 |---|---|
-| [`weixin-bridge/`](weixin-bridge/) | 把 Harness agent 接到微信 ClawBot 通道的双面插件（host 半区 + Settings 页面），是本仓库最完整的插件示例，含安装、配置、开发说明 |
-| [`mcp-admin/`](mcp-admin/) | 把 skill / Agent 预设管理暴露为 MCP server 的双面插件（bearer token 认证的 `/mcp` 端点 + Settings「MCP 管理」修改记录看板），支持远程 Agent 免 SSH 修改配置 |
+| `docs/` | 各插件的设计文档（拆分前） |
 | `clash-verge-nodes.yaml` | 其他用途的配置备份，与插件无关 |
 
 ## DeepSeek Harness 官方仓库
@@ -38,9 +45,9 @@ git clone https://github.com/deepseek-ai/deepseek-harness.git
 - [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) —— DSH 插件精选列表
 - [awesome-deepseek-harness](https://github.com/0xsline/awesome-deepseek-harness) —— DSH 生态整理（插件、工具、基础设施）
 
-## 安装本仓库的插件
+## 安装插件
 
 ```sh
-# 以 weixin-bridge 为例（详见其 README）
-dsh plugin --profile web add /path/to/dsh-plugins/weixin-bridge
+# 以 dsh-weixin-bridge 为例（详见各仓库 README）
+dsh plugin --profile web add /path/to/dsh-weixin-bridge
 ```
